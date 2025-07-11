@@ -322,7 +322,7 @@ class SAM2Cropper:
                      min_area: int, max_area: int, 
                      padding: int = 10, hole_size: int = 5,
                      output_size: Tuple[int, int] = (1024, 1024),
-                     gray_bg: bool = True) -> int:
+                     gray_bg: bool = True, save_debug: bool = False) -> int:
         """
         Process a single image and save cropped segments.
         
@@ -364,6 +364,26 @@ class SAM2Cropper:
             new_h, new_w = int(h * scale), int(w * scale)
             image = cv2.resize(image, (new_w, new_h))
             logger.info(f"Resized image from ({h}, {w}) to ({new_h}, {new_w})")
+            
+            # Save resized image for debugging if requested
+            if save_debug:
+                debug_dir = os.path.join(output_dir, "debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                image_name = Path(image_path).stem
+                debug_path = os.path.join(debug_dir, f"{image_name}_resized.png")
+                debug_image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(debug_path, debug_image_bgr)
+                logger.info(f"Saved resized debug image: {debug_path}")
+        else:
+            # Save original image for debugging if requested (when no resizing needed)
+            if save_debug:
+                debug_dir = os.path.join(output_dir, "debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                image_name = Path(image_path).stem
+                debug_path = os.path.join(debug_dir, f"{image_name}_original.png")
+                debug_image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(debug_path, debug_image_bgr)
+                logger.info(f"Saved original debug image: {debug_path}")
         
         # Generate masks with comprehensive error handling
         logger.info(f"Generating masks for: {image_path}")
@@ -502,7 +522,7 @@ class SAM2Cropper:
         return saved_count
     
     def process_directory(self, input_dir: str, output_dir: str, 
-                         min_area: int, max_area: int, **kwargs) -> int:
+                         min_area: int, max_area: int, save_debug: bool = False, **kwargs) -> int:
         """
         Process all images in a directory.
         
@@ -539,7 +559,7 @@ class SAM2Cropper:
         for image_file in image_files:
             try:
                 segments = self.process_image(
-                    str(image_file), output_dir, min_area, max_area, **kwargs
+                    str(image_file), output_dir, min_area, max_area, save_debug=save_debug, **kwargs
                 )
                 total_segments += segments
             except Exception as e:
@@ -566,6 +586,9 @@ Examples:
   
   # Process with custom padding and hole removal
   python sam2_crop_cli.py input_dir/ output_dir/ --padding 20 --hole-size 10
+  
+  # Process with debug images saved
+  python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
         """
     )
     
@@ -603,6 +626,8 @@ Examples:
                        help="Gray background value (0-255, default: 128)")
     
     # Other arguments
+    parser.add_argument("--save-debug", action="store_true",
+                       help="Save resized/original images for debugging")
     parser.add_argument("--verbose", "-v", action="store_true",
                        help="Enable verbose logging")
     
@@ -639,7 +664,8 @@ Examples:
             segments = cropper.process_image(
                 args.input, args.output, args.min_area, args.max_area,
                 padding=args.padding, hole_size=args.hole_size,
-                output_size=tuple(args.output_size), gray_bg=args.gray_bg
+                output_size=tuple(args.output_size), gray_bg=args.gray_bg,
+                save_debug=args.save_debug
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
         else:
@@ -647,7 +673,8 @@ Examples:
             segments = cropper.process_directory(
                 args.input, args.output, args.min_area, args.max_area,
                 padding=args.padding, hole_size=args.hole_size,
-                output_size=tuple(args.output_size), gray_bg=args.gray_bg
+                output_size=tuple(args.output_size), gray_bg=args.gray_bg,
+                save_debug=args.save_debug
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
             
