@@ -97,13 +97,15 @@ class SAM2Cropper:
             logger.warning(f"Device selection failed: {e}, using CPU")
             return "cpu"
     
-    def __init__(self, model_type: str = "sam2_hiera_b+", device: str = "cpu"):
+    def __init__(self, device: str = "cpu", 
+                 config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt"):
         """
         Initialize SAM2 cropper.
         
         Args:
-            model_type: SAM2 model type (sam2_hiera_b+, sam2_hiera_l, sam2_hiera_s, sam2_hiera_t)
             device: Device to run inference on ('cuda' or 'cpu')
+            config_file: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
+            ckpt_path: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
         """
         # Setup CUDA environment
         self._setup_cuda_environment()
@@ -112,29 +114,41 @@ class SAM2Cropper:
         self.device = self._safe_device_selection(device)
         logger.info(f"Using device: {self.device}")
         
-        # Store model type for fallback
-        self.model_type = model_type
+        # Store paths for fallback
+        self.config_file = config_file
+        self.ckpt_path = ckpt_path
         
         # Build SAM2 model with error handling
-        logger.info(f"Loading SAM2 model: {model_type}")
+        logger.info(f"Loading SAM2 model with config: {config_file}")
         try:
-            self.model = build_sam2(model_type, device=self.device)
+            logger.info(f"Using config: {config_file} and checkpoint: {ckpt_path}")
+            self.model = build_sam2(
+                config_file=config_file, 
+                ckpt_path=ckpt_path, 
+                device=self.device, 
+                apply_postprocessing=False
+            )
         except Exception as e:
             if "CUDA" in str(e) or "cuda" in str(e).lower() or "memory" in str(e).lower():
                 logger.warning(f"CUDA/memory error detected, falling back to CPU: {e}")
                 self.device = "cpu"
-                self.model = build_sam2(model_type, device="cpu")
+                self.model = build_sam2(
+                    config_file=config_file, 
+                    ckpt_path=ckpt_path, 
+                    device="cpu", 
+                    apply_postprocessing=False
+                )
             else:
                 raise e
         
         # Initialize automatic mask generator
         self.mask_generator = SAM2AutomaticMaskGenerator(
             model=self.model,
-            points_per_side=32,
-            pred_iou_thresh=0.86,
-            stability_score_thresh=0.92,
+            points_per_side=64,
+            points_per_batch=128,
             crop_n_layers=1,
             crop_n_points_downscale_factor=2,
+            crop_overlap_ratio=0.5,
             min_mask_region_area=100,
         )
         
@@ -351,7 +365,7 @@ class SAM2Cropper:
             image = cv2.resize(image, (new_w, new_h))
             logger.info(f"Resized image from ({h}, {w}) to ({new_h}, {new_w})")
         
-        # Generate masks with CUDA error handling
+        # Generate masks with comprehensive error handling
         logger.info(f"Generating masks for: {image_path}")
         try:
             # Clear memory before generation
@@ -363,8 +377,9 @@ class SAM2Cropper:
             masks = self.mask_generator.generate(image)
             logger.info(f"Generated {len(masks)} masks")
             
-        except RuntimeError as e:
-            if "CUDA" in str(e) or "memory" in str(e).lower():
+        except (RuntimeError, IndexError) as e:
+            error_msg = str(e)
+            if "CUDA" in error_msg or "memory" in error_msg.lower():
                 logger.error(f"CUDA/memory error during mask generation: {e}")
                 logger.info("Trying with CPU fallback...")
                 
@@ -373,19 +388,42 @@ class SAM2Cropper:
                 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
                 
                 self.device = "cpu"
-                self.model = build_sam2(self.model_type, device="cpu")
+                self.model = build_sam2(
+                    config_file=self.config_file, 
+                    ckpt_path=self.ckpt_path, 
+                    device="cpu", 
+                    apply_postprocessing=False
+                )
                 self.mask_generator = SAM2AutomaticMaskGenerator(
                     model=self.model,
-                    points_per_side=32,
-                    pred_iou_thresh=0.86,
-                    stability_score_thresh=0.92,
+                    points_per_side=64,
+                    points_per_batch=128,
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
+                    crop_overlap_ratio=0.5,
+                    min_mask_region_area=100,
+                ) 
+                
+                masks = self.mask_generator.generate(image)
+                logger.info(f"Generated {len(masks)} masks on CPU")
+            elif "too many indices for tensor" in error_msg:
+                logger.error(f"Tensor dimension error: {e}")
+                logger.info("Trying with different mask generator settings...")
+                
+                # Try with different settings that might avoid the tensor issue
+                from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+                self.mask_generator = SAM2AutomaticMaskGenerator(
+                    model=self.model,
+                    points_per_side=64,
+                    points_per_batch=128,
+                    crop_n_layers=1,
+                    crop_n_points_downscale_factor=2,
+                    crop_overlap_ratio=0.5,
                     min_mask_region_area=100,
                 )
                 
                 masks = self.mask_generator.generate(image)
-                logger.info(f"Generated {len(masks)} masks on CPU")
+                logger.info(f"Generated {len(masks)} masks with alternative settings")
             else:
                 logger.error(f"Error generating masks: {e}")
                 logger.error(f"Image shape: {image.shape}, dtype: {image.dtype}")
@@ -393,7 +431,26 @@ class SAM2Cropper:
         except Exception as e:
             logger.error(f"Error generating masks: {e}")
             logger.error(f"Image shape: {image.shape}, dtype: {image.dtype}")
-            raise
+            
+            # Final fallback: try with minimal settings
+            logger.info("Trying final fallback with minimal settings...")
+            try:
+                from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+                self.mask_generator = SAM2AutomaticMaskGenerator(
+                    model=self.model,
+                    points_per_side=64,
+                    points_per_batch=128,
+                    crop_n_layers=1,
+                    crop_n_points_downscale_factor=2,
+                    crop_overlap_ratio=0.5,
+                    min_mask_region_area=100,
+                )
+                
+                masks = self.mask_generator.generate(image)
+                logger.info(f"Generated {len(masks)} masks with minimal settings")
+            except Exception as fallback_error:
+                logger.error(f"All mask generation attempts failed: {fallback_error}")
+                raise
         
         # Filter by area
         filtered_masks = self.filter_masks_by_area(masks, min_area, max_area)
@@ -504,8 +561,8 @@ Examples:
   # Process a directory with custom area thresholds
   python sam2_crop_cli.py input_dir/ output_dir/ --min-area 1000 --max-area 50000
   
-  # Use different model and output size
-  python sam2_crop_cli.py input_dir/ output_dir/ --model sam2_hiera_l --output-size 512 512
+  # Use different output size
+  python sam2_crop_cli.py input_dir/ output_dir/ --output-size 512 512
   
   # Process with custom padding and hole removal
   python sam2_crop_cli.py input_dir/ output_dir/ --padding 20 --hole-size 10
@@ -523,10 +580,12 @@ Examples:
                        help="Maximum area threshold in pixels (default: 1000000)")
     
     # Model arguments
-    parser.add_argument("--model", choices=["sam2_hiera_b+", "sam2_hiera_l", "sam2_hiera_s", "sam2_hiera_t"], 
-                       default="sam2_hiera_b+", help="SAM2 model type (default: sam2_hiera_b+)")
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cpu",
                        help="Device to run inference on (default: cpu)")
+    parser.add_argument("--config-file", type=str, default="configs/sam2.1/sam2.1_hiera_b+.yaml",
+                       help="Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)")
+    parser.add_argument("--ckpt-path", type=str, default="checkpoints/sam2.1_hiera_base_plus.pt",
+                       help="Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)")
     
     # Processing arguments
     parser.add_argument("--padding", type=int, default=10,
@@ -568,7 +627,11 @@ Examples:
     
     try:
         # Initialize SAM2 cropper
-        cropper = SAM2Cropper(model_type=args.model, device=args.device)
+        cropper = SAM2Cropper(
+            device=args.device,
+            config_file=args.config_file,
+            ckpt_path=args.ckpt_path
+        )
         
         # Process input
         if os.path.isfile(args.input):

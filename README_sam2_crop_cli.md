@@ -34,12 +34,14 @@ chmod +x sam2_crop_cli.py
 ### Basic Usage
 
 ```bash
-# Process a single image
+# Process a single image (uses default sam2.1_hiera_b+ model)
 python sam2_crop_cli.py input.jpg output_dir/
 
-# Process a directory of images
+# Process a directory of images (uses default sam2.1_hiera_b+ model)
 python sam2_crop_cli.py input_dir/ output_dir/
 ```
+
+**Note**: By default, the tool uses the `sam2.1_hiera_b+` (SAM2.1 base plus) model with config file `configs/sam2.1/sam2.1_hiera_b+.yaml` and checkpoint `checkpoints/sam2.1_hiera_base_plus.pt`.
 
 ### Advanced Usage
 
@@ -49,6 +51,12 @@ python sam2_crop_cli.py input_dir/ output_dir/ --min-area 1000 --max-area 50000
 
 # Use different SAM2 model
 python sam2_crop_cli.py input_dir/ output_dir/ --model sam2_hiera_l
+
+# Use custom config and checkpoint files (overrides defaults)
+python sam2_crop_cli.py input_dir/ output_dir/ --config-file configs/sam2.1/sam2.1_hiera_l.yaml --ckpt-path checkpoints/sam2.1_hiera_large.pt
+
+# Use original SAM2 models (for compatibility)
+python sam2_crop_cli.py input_dir/ output_dir/ --config-file configs/sam2/sam2_hiera_b+.yaml --ckpt-path checkpoints/sam2_hiera_base_plus.pt
 
 # Custom output size
 python sam2_crop_cli.py input_dir/ output_dir/ --output-size 512 512
@@ -78,6 +86,8 @@ python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
 #### Model Settings
 - `--model`: SAM2 model type - `sam2_hiera_b+`, `sam2_hiera_l`, `sam2_hiera_s`, or `sam2_hiera_t` (default: sam2_hiera_b+)
 - `--device`: Device to run inference on - `cuda` or `cpu` (default: cpu)
+- `--config-file`: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
+- `--ckpt-path`: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
 
 #### Processing Settings
 - `--padding`: Padding size in pixels around segments (default: 10)
@@ -149,9 +159,13 @@ python sam2_crop_cli.py ./images/ ./output/ \
 
 1. **Area Thresholds**: Start with wide ranges and narrow down based on your needs
 2. **Model Selection**: 
-   - `sam2_hiera_b+`: Fastest, good for most use cases
-   - `sam2_hiera_l`: Better quality, slower
-   - `sam2_hiera_s`: Best quality, slowest
+   - **SAM2.1 Models** (default): `sam2.1_hiera_b+`, `sam2.1_hiera_l`, `sam2.1_hiera_s`, `sam2.1_hiera_t`
+     - Latest version with improved performance
+     - Better segmentation quality
+     - More robust to edge cases
+   - **SAM2 Models**: `sam2_hiera_b+`, `sam2_hiera_l`, `sam2_hiera_s`, `sam2_hiera_t`
+     - Original SAM2 models
+     - Still available for compatibility
 3. **Padding**: Use larger padding if you need to include more context around objects
 4. **Hole Removal**: Use larger hole_size values to remove bigger holes in segments
 5. **Output Size**: Larger sizes preserve more detail but use more storage
