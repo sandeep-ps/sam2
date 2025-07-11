@@ -58,6 +58,45 @@ from typing import List, Dict, Any, Tuple
 class SAM2Cropper:
     """SAM2-based image cropper with configurable area thresholds."""
     
+    def _setup_cuda_environment(self):
+        """Setup CUDA environment with error handling."""
+        try:
+            # Set CUDA environment variables for debugging
+            os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+            
+            # Check CUDA availability
+            if torch.cuda.is_available():
+                logger.info(f"CUDA available: {torch.cuda.get_device_name(0)}")
+                logger.info(f"CUDA memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+                
+                # Clear CUDA cache
+                torch.cuda.empty_cache()
+                return True
+            else:
+                logger.info("CUDA not available, using CPU")
+                return False
+        except Exception as e:
+            logger.warning(f"CUDA setup failed: {e}")
+            return False
+    
+    def _safe_device_selection(self, requested_device: str) -> str:
+        """Safely select device with fallback to CPU."""
+        try:
+            if requested_device == "cuda" and torch.cuda.is_available():
+                # Check if CUDA memory is sufficient
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+                if gpu_memory < 4.0:  # Less than 4GB
+                    logger.warning(f"GPU memory ({gpu_memory:.1f}GB) may be insufficient, using CPU")
+                    return "cpu"
+                return "cuda"
+            else:
+                if requested_device == "cuda":
+                    logger.warning("CUDA requested but not available, using CPU")
+                return "cpu"
+        except Exception as e:
+            logger.warning(f"Device selection failed: {e}, using CPU")
+            return "cpu"
+    
     def __init__(self, model_type: str = "sam2_hiera_b+", device: str = "cpu"):
         """
         Initialize SAM2 cropper.
@@ -66,23 +105,23 @@ class SAM2Cropper:
             model_type: SAM2 model type (sam2_hiera_b+, sam2_hiera_l, sam2_hiera_s, sam2_hiera_t)
             device: Device to run inference on ('cuda' or 'cpu')
         """
-        # Check if CUDA is available when requested
-        if device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA requested but not available, falling back to CPU")
-            self.device = "cpu"
-        else:
-            self.device = device
-            
+        # Setup CUDA environment
+        self._setup_cuda_environment()
+        
+        # Safely select device
+        self.device = self._safe_device_selection(device)
         logger.info(f"Using device: {self.device}")
         
-        # Build SAM2 model
+        # Store model type for fallback
+        self.model_type = model_type
+        
+        # Build SAM2 model with error handling
         logger.info(f"Loading SAM2 model: {model_type}")
         try:
-            # Explicitly pass device to build_sam2 to avoid CUDA issues
             self.model = build_sam2(model_type, device=self.device)
         except Exception as e:
-            if "CUDA" in str(e) or "cuda" in str(e).lower():
-                logger.warning(f"CUDA error detected, falling back to CPU: {e}")
+            if "CUDA" in str(e) or "cuda" in str(e).lower() or "memory" in str(e).lower():
+                logger.warning(f"CUDA/memory error detected, falling back to CPU: {e}")
                 self.device = "cpu"
                 self.model = build_sam2(model_type, device="cpu")
             else:
@@ -312,11 +351,45 @@ class SAM2Cropper:
             image = cv2.resize(image, (new_w, new_h))
             logger.info(f"Resized image from ({h}, {w}) to ({new_h}, {new_w})")
         
-        # Generate masks
+        # Generate masks with CUDA error handling
         logger.info(f"Generating masks for: {image_path}")
         try:
+            # Clear memory before generation
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                import gc
+                gc.collect()
+            
             masks = self.mask_generator.generate(image)
             logger.info(f"Generated {len(masks)} masks")
+            
+        except RuntimeError as e:
+            if "CUDA" in str(e) or "memory" in str(e).lower():
+                logger.error(f"CUDA/memory error during mask generation: {e}")
+                logger.info("Trying with CPU fallback...")
+                
+                # Rebuild model on CPU
+                from sam2.build_sam import build_sam2
+                from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+                
+                self.device = "cpu"
+                self.model = build_sam2(self.model_type, device="cpu")
+                self.mask_generator = SAM2AutomaticMaskGenerator(
+                    model=self.model,
+                    points_per_side=32,
+                    pred_iou_thresh=0.86,
+                    stability_score_thresh=0.92,
+                    crop_n_layers=1,
+                    crop_n_points_downscale_factor=2,
+                    min_mask_region_area=100,
+                )
+                
+                masks = self.mask_generator.generate(image)
+                logger.info(f"Generated {len(masks)} masks on CPU")
+            else:
+                logger.error(f"Error generating masks: {e}")
+                logger.error(f"Image shape: {image.shape}, dtype: {image.dtype}")
+                raise
         except Exception as e:
             logger.error(f"Error generating masks: {e}")
             logger.error(f"Image shape: {image.shape}, dtype: {image.dtype}")
@@ -361,6 +434,12 @@ class SAM2Cropper:
             except Exception as e:
                 logger.error(f"Error processing mask {i}: {e}")
                 continue
+        
+        # Clean up memory
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
+            import gc
+            gc.collect()
         
         logger.info(f"Saved {saved_count} segments for: {image_path}")
         return saved_count
