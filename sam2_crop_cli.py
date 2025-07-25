@@ -468,6 +468,35 @@ class SAM2Cropper:
             logger.warning(f"No valid segments found for: {image_path}")
             return 0
         
+        # Sort masks by y position (ascending order)
+        def get_mask_y_center(mask):
+            """Get the y-center of a mask's bounding box."""
+            try:
+                if isinstance(mask['segmentation'], dict):
+                    try:
+                        from pycocotools import mask as mask_utils
+                        binary_mask = mask_utils.decode(mask['segmentation'])
+                    except ImportError:
+                        logger.error("pycocotools is not installed. Please install it with: pip install pycocotools")
+                        return 0
+                else:
+                    binary_mask = mask['segmentation'].astype(np.uint8)
+                
+                # Find bounding box
+                coords = np.where(binary_mask > 0)
+                if len(coords[0]) == 0:
+                    return 0
+                
+                y_min, y_max = coords[0].min(), coords[0].max()
+                return (y_min + y_max) / 2  # Return y-center
+            except Exception as e:
+                logger.warning(f"Error calculating y-center for mask: {e}")
+                return 0
+        
+        # Sort filtered masks by y position
+        filtered_masks = sorted(filtered_masks, key=get_mask_y_center)
+        logger.info(f"Sorted {len(filtered_masks)} masks by y position (ascending)")
+        
         # Create output directory
         image_name = Path(image_path).stem
         image_output_dir = os.path.join(output_dir, image_name)
