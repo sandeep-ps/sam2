@@ -3,7 +3,8 @@
 SAM2 Image Cropping CLI Tool
 
 This tool uses SAM2 (Segment Anything Model 2) to automatically segment images
-and crop individual objects based on area thresholds.
+and crop rectangular regions around individual objects based on area thresholds.
+The tool uses mask bounding boxes for cropping rather than applying mask shapes.
 """
 
 import argparse
@@ -56,7 +57,10 @@ from typing import List, Dict, Any, Tuple
 
 
 class SAM2Cropper:
-    """SAM2-based image cropper with configurable area thresholds."""
+    """SAM2-based image cropper with configurable area thresholds.
+    
+    Uses mask bounding boxes to crop rectangular regions around segmented objects.
+    """
     
     def _setup_cuda_environment(self):
         """Setup CUDA environment with error handling."""
@@ -201,10 +205,11 @@ class SAM2Cropper:
     def process_mask(self, mask: Dict, padding: int = 10, hole_size: int = 5) -> np.ndarray:
         """
         Process a single mask with padding and hole removal.
+        The processed mask is used to determine the bounding box for cropping.
         
         Args:
             mask: Mask dictionary
-            padding: Padding size in pixels
+            padding: Padding size in pixels (expands bounding box)
             hole_size: Size of holes to remove
             
         Returns:
@@ -250,11 +255,11 @@ class SAM2Cropper:
                        output_size: Tuple[int, int] = (1024, 1024),
                        gray_bg: bool = True, gray_value: int = 128) -> np.ndarray:
         """
-        Crop image based on mask and center it.
+        Crop image based on mask bounding box and center it.
         
         Args:
             image: Input image
-            mask: Binary mask
+            mask: Binary mask (used only to find bounding box)
             output_size: Output image size (width, height)
             gray_bg: Whether to use gray background
             gray_value: Gray background value
@@ -262,7 +267,7 @@ class SAM2Cropper:
         Returns:
             Cropped and centered image
         """
-        # Find bounding box
+        # Find bounding box from mask
         try:
             coords = np.where(mask > 0)
             if len(coords[0]) == 0:
@@ -274,9 +279,8 @@ class SAM2Cropper:
             logger.error(f"Error finding bounding box: {e}")
             return None
         
-        # Crop image and mask
+        # Crop image using bounding box (no mask application)
         cropped_image = image[y_min:y_max+1, x_min:x_max+1]
-        cropped_mask = mask[y_min:y_max+1, x_min:x_max+1]
         
         # Create output image
         output_image = np.full((output_size[1], output_size[0], 3), gray_value, dtype=np.uint8)
@@ -289,32 +293,14 @@ class SAM2Cropper:
             # Resize to fit
             new_w, new_h = int(w * scale), int(h * scale)
             cropped_image = cv2.resize(cropped_image, (new_w, new_h))
-            cropped_mask = cv2.resize(cropped_mask, (new_w, new_h))
             h, w = new_h, new_w
         
         # Center the image
         y_offset = (output_size[1] - h) // 2
         x_offset = (output_size[0] - w) // 2
         
-        # Apply mask and place in output
-        if gray_bg:
-            # Use gray background
-            output_image[y_offset:y_offset+h, x_offset:x_offset+w] = cropped_image
-            # Apply mask to set non-mask areas to gray
-            mask_3d = np.stack([cropped_mask] * 3, axis=2)
-            output_image[y_offset:y_offset+h, x_offset:x_offset+w] = np.where(
-                mask_3d > 0, 
-                output_image[y_offset:y_offset+h, x_offset:x_offset+w], 
-                gray_value
-            )
-        else:
-            # Use transparent background (black)
-            mask_3d = np.stack([cropped_mask] * 3, axis=2)
-            output_image[y_offset:y_offset+h, x_offset:x_offset+w] = np.where(
-                mask_3d > 0, 
-                cropped_image, 
-                0
-            )
+        # Place cropped image in output (no mask application)
+        output_image[y_offset:y_offset+h, x_offset:x_offset+w] = cropped_image
         
         return output_image
     
@@ -476,7 +462,7 @@ class SAM2Cropper:
         filtered_masks = self.filter_masks_by_area(masks, min_area, max_area)
         
         # Remove background
-        filtered_masks = self.remove_background_mask(filtered_masks)
+        # filtered_masks = self.remove_background_mask(filtered_masks)
         
         if not filtered_masks:
             logger.warning(f"No valid segments found for: {image_path}")
@@ -494,7 +480,7 @@ class SAM2Cropper:
                 # Process mask
                 processed_mask = self.process_mask(mask, padding, hole_size)
                 
-                # Crop and center
+                # Crop and center using bounding box
                 cropped_image = self.crop_and_center(
                     image, processed_mask, output_size, gray_bg
                 )
@@ -571,7 +557,7 @@ class SAM2Cropper:
 def main():
     """Main CLI function."""
     parser = argparse.ArgumentParser(
-        description="SAM2 Image Cropping Tool - Automatically crop image segments using SAM2",
+        description="SAM2 Image Cropping Tool - Automatically crop rectangular regions around image segments using SAM2",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
