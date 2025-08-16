@@ -335,7 +335,8 @@ class SAM2Cropper:
                      padding: int = 10, hole_size: int = 5,
                      output_size: Tuple[int, int] = (1024, 1024),
                      gray_bg: bool = True, gray_value: int = 128,
-                     bg_color: Tuple[int, int, int] = None, save_debug: bool = False) -> int:
+                     bg_color: Tuple[int, int, int] = None, save_debug: bool = False,
+                     sort_by_y: str = "ascending") -> int:
         """
         Process a single image and save cropped segments.
         
@@ -495,6 +496,30 @@ class SAM2Cropper:
             logger.warning(f"No valid segments found for: {image_path}")
             return 0
         
+        # Sort masks by Y coordinate
+        if sort_by_y in ["ascending", "descending"]:
+            def get_mask_center_y(mask):
+                """Get the Y coordinate of the mask center."""
+                if isinstance(mask['segmentation'], dict):
+                    try:
+                        from pycocotools import mask as mask_utils
+                        binary_mask = mask_utils.decode(mask['segmentation'])
+                    except ImportError:
+                        logger.error("pycocotools is not installed. Please install it with: pip install pycocotools")
+                        raise
+                else:
+                    binary_mask = mask['segmentation'].astype(np.uint8)
+                
+                # Find the center Y coordinate
+                coords = np.where(binary_mask > 0)
+                if len(coords[0]) == 0:
+                    return 0
+                return np.mean(coords[0])
+            
+            reverse = (sort_by_y == "descending")
+            filtered_masks = sorted(filtered_masks, key=get_mask_center_y, reverse=reverse)
+            logger.info(f"Sorted {len(filtered_masks)} masks by Y coordinate ({sort_by_y} order)")
+        
         # Create output directory
         image_name = Path(image_path).stem
         image_output_dir = os.path.join(output_dir, image_name)
@@ -535,7 +560,7 @@ class SAM2Cropper:
         return saved_count
     
     def process_directory(self, input_dir: str, output_dir: str, 
-                         min_area: int, max_area: int, save_debug: bool = False, **kwargs) -> int:
+                         min_area: int, max_area: int, save_debug: bool = False, sort_by_y: str = "ascending", **kwargs) -> int:
         """
         Process all images in a directory.
         
@@ -572,7 +597,7 @@ class SAM2Cropper:
         for image_file in image_files:
             try:
                 segments = self.process_image(
-                    str(image_file), output_dir, min_area, max_area, save_debug=save_debug, **kwargs
+                    str(image_file), output_dir, min_area, max_area, save_debug=save_debug, sort_by_y=sort_by_y, **kwargs
                 )
                 total_segments += segments
             except Exception as e:
@@ -611,6 +636,12 @@ Examples:
   
   # Process with debug images saved
   python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
+  
+  # Sort segments by Y coordinate in descending order (top to bottom)
+  python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y descending
+  
+  # Sort segments by Y coordinate in ascending order (bottom to top, default)
+  python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y ascending
         """
     )
     
@@ -648,6 +679,10 @@ Examples:
                        help="Custom background color as RGB values (0-255 each)")
     parser.add_argument("--gray-value", type=int, default=128,
                        help="Gray background value (0-255, default: 128)")
+    
+    # Sorting arguments
+    parser.add_argument("--sort-by-y", choices=["ascending", "descending"], default="ascending",
+                       help="Sort segments by Y coordinate (default: ascending)")
     
     # Other arguments
     parser.add_argument("--save-debug", action="store_true",
@@ -702,7 +737,7 @@ Examples:
                 padding=args.padding, hole_size=args.hole_size,
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
                 gray_value=args.gray_value, bg_color=args.bg_color,
-                save_debug=args.save_debug
+                save_debug=args.save_debug, sort_by_y=args.sort_by_y
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
         else:
@@ -712,7 +747,7 @@ Examples:
                 padding=args.padding, hole_size=args.hole_size,
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
                 gray_value=args.gray_value, bg_color=args.bg_color,
-                save_debug=args.save_debug
+                save_debug=args.save_debug, sort_by_y=args.sort_by_y
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
             
