@@ -11,6 +11,8 @@ A command-line interface tool that uses SAM2 (Segment Anything Model 2) to autom
 - **Background Removal**: Automatically removes the largest segment (typically background)
 - **Hole Removal**: Remove small holes in segments using morphological operations
 - **Padding**: Add padding around segments to include boundary pixels
+- **Custom Background Colors**: Support for gray, transparent, or custom RGB backgrounds
+- **Debug Mode**: Save intermediate images for debugging
 
 ## Installation
 
@@ -49,10 +51,7 @@ python sam2_crop_cli.py input_dir/ output_dir/
 # Process with custom area thresholds
 python sam2_crop_cli.py input_dir/ output_dir/ --min-area 1000 --max-area 50000
 
-# Use different SAM2 model
-python sam2_crop_cli.py input_dir/ output_dir/ --model sam2_hiera_l
-
-# Use custom config and checkpoint files (overrides defaults)
+# Use different SAM2 model by specifying config and checkpoint
 python sam2_crop_cli.py input_dir/ output_dir/ --config-file configs/sam2.1/sam2.1_hiera_l.yaml --ckpt-path checkpoints/sam2.1_hiera_large.pt
 
 # Use original SAM2 models (for compatibility)
@@ -67,8 +66,14 @@ python sam2_crop_cli.py input_dir/ output_dir/ --padding 20 --hole-size 10
 # Use transparent background instead of gray
 python sam2_crop_cli.py input_dir/ output_dir/ --no-gray-bg
 
+# Use custom background color (red)
+python sam2_crop_cli.py input_dir/ output_dir/ --bg-color 255 0 0
+
 # Custom gray background value
 python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
+
+# Save debug images for troubleshooting
+python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 ```
 
 ## Command Line Arguments
@@ -84,7 +89,6 @@ python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
 - `--max-area`: Maximum area threshold in pixels (default: 1000000)
 
 #### Model Settings
-- `--model`: SAM2 model type - `sam2_hiera_b+`, `sam2_hiera_l`, `sam2_hiera_s`, or `sam2_hiera_t` (default: sam2_hiera_b+)
 - `--device`: Device to run inference on - `cuda` or `cpu` (default: cpu)
 - `--config-file`: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
 - `--ckpt-path`: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
@@ -95,11 +99,13 @@ python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
 - `--output-size`: Output image size as WIDTH HEIGHT (default: 1024 1024)
 
 #### Background Settings
-- `--gray-bg`: Use gray background (default: True)
+- `--gray-bg`: Use gray background (default: True when no background option specified)
 - `--no-gray-bg`: Use transparent (black) background
+- `--bg-color`: Custom background color as RGB values (0-255 each, e.g., 255 0 0 for red)
 - `--gray-value`: Gray background value 0-255 (default: 128)
 
 #### Other
+- `--save-debug`: Save resized/original images for debugging
 - `--verbose`, `-v`: Enable verbose logging
 
 ## Output Structure
@@ -139,7 +145,8 @@ python sam2_crop_cli.py ./images/ ./output/ --min-area 5000 --max-area 50000
 ```bash
 # Use large model, high resolution, and extra padding
 python sam2_crop_cli.py ./images/ ./output/ \
-    --model sam2_hiera_l \
+    --config-file configs/sam2.1/sam2.1_hiera_l.yaml \
+    --ckpt-path checkpoints/sam2.1_hiera_large.pt \
     --output-size 2048 2048 \
     --padding 30 \
     --hole-size 10
@@ -155,20 +162,43 @@ python sam2_crop_cli.py ./images/ ./output/ \
     --output-size 512 512
 ```
 
+### Example 5: Custom Background
+```bash
+# Use red background for all segments
+python sam2_crop_cli.py ./images/ ./output/ \
+    --bg-color 255 0 0 \
+    --padding 15
+```
+
+## Available Models
+
+The tool supports both SAM2.1 and original SAM2 models. You can specify any model by providing the appropriate config file and checkpoint:
+
+### SAM2.1 Models (Recommended)
+- **Base Plus**: `configs/sam2.1/sam2.1_hiera_b+.yaml` + `checkpoints/sam2.1_hiera_base_plus.pt` (default)
+- **Large**: `configs/sam2.1/sam2.1_hiera_l.yaml` + `checkpoints/sam2.1_hiera_large.pt`
+- **Small**: `configs/sam2.1/sam2.1_hiera_s.yaml` + `checkpoints/sam2.1_hiera_small.pt`
+- **Tiny**: `configs/sam2.1/sam2.1_hiera_t.yaml` + `checkpoints/sam2.1_hiera_tiny.pt`
+
+### Original SAM2 Models
+- **Base Plus**: `configs/sam2/sam2_hiera_b+.yaml` + `checkpoints/sam2_hiera_base_plus.pt`
+- **Large**: `configs/sam2/sam2_hiera_l.yaml` + `checkpoints/sam2_hiera_large.pt`
+- **Small**: `configs/sam2/sam2_hiera_s.yaml` + `checkpoints/sam2_hiera_small.pt`
+- **Tiny**: `configs/sam2/sam2_hiera_t.yaml` + `checkpoints/sam2_hiera_tiny.pt`
+
 ## Tips
 
 1. **Area Thresholds**: Start with wide ranges and narrow down based on your needs
 2. **Model Selection**: 
-   - **SAM2.1 Models** (default): `sam2.1_hiera_b+`, `sam2.1_hiera_l`, `sam2.1_hiera_s`, `sam2.1_hiera_t`
-     - Latest version with improved performance
-     - Better segmentation quality
-     - More robust to edge cases
-   - **SAM2 Models**: `sam2_hiera_b+`, `sam2_hiera_l`, `sam2_hiera_s`, `sam2_hiera_t`
-     - Original SAM2 models
-     - Still available for compatibility
+   - **SAM2.1 Models** (default): Latest version with improved performance and better segmentation quality
+   - **SAM2 Models**: Original models available for compatibility
 3. **Padding**: Use larger padding if you need to include more context around objects
 4. **Hole Removal**: Use larger hole_size values to remove bigger holes in segments
-5. **Output Size**: Larger sizes preserve more detail but use more storage
+5. **Output Size**: Larger sizes preserve more detail but use more storage space
+6. **Background Options**: 
+   - Default gray background provides good contrast
+   - Transparent background (--no-gray-bg) is useful for compositing
+   - Custom colors (--bg-color) can match your workflow needs
 
 ## Troubleshooting
 
@@ -179,6 +209,7 @@ python sam2_crop_cli.py ./images/ ./output/ \
 3. **Missing boundary pixels**: Increase `--padding`
 4. **Holes in segments**: Increase `--hole-size`
 5. **Out of memory**: Use smaller model or reduce `--output-size`
+6. **CUDA errors**: The tool automatically falls back to CPU if CUDA issues occur
 
 ### Performance Tips
 
@@ -186,6 +217,14 @@ python sam2_crop_cli.py ./images/ ./output/ \
 - Use smaller models for faster processing
 - Process images in smaller batches if memory is limited
 - Use smaller output sizes to save storage space
+
+### Debug Mode
+
+Use `--save-debug` to save intermediate images (resized input and original) alongside the segments. This helps troubleshoot issues with:
+- Input image processing
+- Segmentation quality
+- Area filtering
+- Background handling
 
 ## License
 

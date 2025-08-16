@@ -248,7 +248,8 @@ class SAM2Cropper:
     
     def crop_and_center(self, image: np.ndarray, mask: np.ndarray, 
                        output_size: Tuple[int, int] = (1024, 1024),
-                       gray_bg: bool = True, gray_value: int = 128) -> np.ndarray:
+                       gray_bg: bool = True, gray_value: int = 128, 
+                       bg_color: Tuple[int, int, int] = None) -> np.ndarray:
         """
         Crop image based on mask and center it.
         
@@ -258,6 +259,7 @@ class SAM2Cropper:
             output_size: Output image size (width, height)
             gray_bg: Whether to use gray background
             gray_value: Gray background value
+            bg_color: Custom background color as RGB tuple (overrides gray_bg and gray_value)
             
         Returns:
             Cropped and centered image
@@ -278,8 +280,13 @@ class SAM2Cropper:
         cropped_image = image[y_min:y_max+1, x_min:x_max+1]
         cropped_mask = mask[y_min:y_max+1, x_min:x_max+1]
         
-        # Create output image
-        output_image = np.full((output_size[1], output_size[0], 3), gray_value, dtype=np.uint8)
+        # Create output image with appropriate background
+        if bg_color is not None:
+            # Use custom background color
+            output_image = np.full((output_size[1], output_size[0], 3), bg_color, dtype=np.uint8)
+        else:
+            # Use gray or black background
+            output_image = np.full((output_size[1], output_size[0], 3), gray_value, dtype=np.uint8)
         
         # Calculate scaling to fit in output size
         h, w = cropped_image.shape[:2]
@@ -297,19 +304,24 @@ class SAM2Cropper:
         x_offset = (output_size[0] - w) // 2
         
         # Apply mask and place in output
-        if gray_bg:
-            # Use gray background
-            output_image[y_offset:y_offset+h, x_offset:x_offset+w] = cropped_image
-            # Apply mask to set non-mask areas to gray
-            mask_3d = np.stack([cropped_mask] * 3, axis=2)
+        mask_3d = np.stack([cropped_mask] * 3, axis=2)
+        
+        if bg_color is not None:
+            # Use custom background color
             output_image[y_offset:y_offset+h, x_offset:x_offset+w] = np.where(
                 mask_3d > 0, 
-                output_image[y_offset:y_offset+h, x_offset:x_offset+w], 
+                cropped_image, 
+                bg_color
+            )
+        elif gray_bg:
+            # Use gray background
+            output_image[y_offset:y_offset+h, x_offset:x_offset+w] = np.where(
+                mask_3d > 0, 
+                cropped_image, 
                 gray_value
             )
         else:
             # Use transparent background (black)
-            mask_3d = np.stack([cropped_mask] * 3, axis=2)
             output_image[y_offset:y_offset+h, x_offset:x_offset+w] = np.where(
                 mask_3d > 0, 
                 cropped_image, 
@@ -322,7 +334,8 @@ class SAM2Cropper:
                      min_area: int, max_area: int, 
                      padding: int = 10, hole_size: int = 5,
                      output_size: Tuple[int, int] = (1024, 1024),
-                     gray_bg: bool = True, save_debug: bool = False) -> int:
+                     gray_bg: bool = True, gray_value: int = 128,
+                     bg_color: Tuple[int, int, int] = None, save_debug: bool = False) -> int:
         """
         Process a single image and save cropped segments.
         
@@ -496,7 +509,7 @@ class SAM2Cropper:
                 
                 # Crop and center
                 cropped_image = self.crop_and_center(
-                    image, processed_mask, output_size, gray_bg
+                    image, processed_mask, output_size, gray_bg, gray_value, bg_color
                 )
                 
                 if cropped_image is not None:
@@ -587,6 +600,15 @@ Examples:
   # Process with custom padding and hole removal
   python sam2_crop_cli.py input_dir/ output_dir/ --padding 20 --hole-size 10
   
+  # Use transparent background (black)
+  python sam2_crop_cli.py input_dir/ output_dir/ --no-gray-bg
+  
+  # Use custom background color (red)
+  python sam2_crop_cli.py input_dir/ output_dir/ --bg-color 255 0 0
+  
+  # Use custom gray value
+  python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
+  
   # Process with debug images saved
   python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
         """
@@ -618,10 +640,12 @@ Examples:
     parser.add_argument("--output-size", type=int, nargs=2, default=[1024, 1024],
                        metavar=("WIDTH", "HEIGHT"),
                        help="Output image size (default: 1024 1024)")
-    parser.add_argument("--gray-bg", action="store_true", default=True,
+    parser.add_argument("--gray-bg", action="store_true", default=False,
                        help="Use gray background (default: True)")
     parser.add_argument("--no-gray-bg", dest="gray_bg", action="store_false",
                        help="Use transparent (black) background")
+    parser.add_argument("--bg-color", type=int, nargs=3, metavar=("R", "G", "B"),
+                       help="Custom background color as RGB values (0-255 each)")
     parser.add_argument("--gray-value", type=int, default=128,
                        help="Gray background value (0-255, default: 128)")
     
@@ -632,6 +656,11 @@ Examples:
                        help="Enable verbose logging")
     
     args = parser.parse_args()
+    
+    # Handle default gray background behavior
+    # If neither --gray-bg nor --no-gray-bg is specified, default to gray background
+    if not hasattr(args, 'gray_bg') or args.gray_bg is None:
+        args.gray_bg = True
     
     # Set logging level
     if args.verbose:
@@ -650,6 +679,13 @@ Examples:
         logger.error("gray-value must be between 0 and 255")
         sys.exit(1)
     
+    # Validate bg-color if provided
+    if args.bg_color is not None:
+        for i, val in enumerate(args.bg_color):
+            if val < 0 or val > 255:
+                logger.error(f"bg-color value {i+1} ({val}) must be between 0 and 255")
+                sys.exit(1)
+    
     try:
         # Initialize SAM2 cropper
         cropper = SAM2Cropper(
@@ -665,6 +701,7 @@ Examples:
                 args.input, args.output, args.min_area, args.max_area,
                 padding=args.padding, hole_size=args.hole_size,
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
+                gray_value=args.gray_value, bg_color=args.bg_color,
                 save_debug=args.save_debug
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
@@ -674,6 +711,7 @@ Examples:
                 args.input, args.output, args.min_area, args.max_area,
                 padding=args.padding, hole_size=args.hole_size,
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
+                gray_value=args.gray_value, bg_color=args.bg_color,
                 save_debug=args.save_debug
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
