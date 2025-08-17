@@ -12,7 +12,9 @@ A command-line interface tool that uses SAM2 (Segment Anything Model 2) to autom
 - **Hole Removal**: Remove small holes in segments using morphological operations
 - **Padding**: Add padding around segments to include boundary pixels
 - **Custom Background Colors**: Support for gray, transparent, or custom RGB backgrounds
+- **Segment Sorting**: Sort segments by Y coordinate (top-to-bottom or bottom-to-top)
 - **Debug Mode**: Save intermediate images for debugging
+- **Robust Error Handling**: Automatic CUDA fallback and memory management
 
 ## Installation
 
@@ -72,6 +74,12 @@ python sam2_crop_cli.py input_dir/ output_dir/ --bg-color 255 0 0
 # Custom gray background value
 python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
 
+# Sort segments by Y coordinate in descending order (top to bottom)
+python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y descending
+
+# Sort segments by Y coordinate in ascending order (bottom to top, default)
+python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y ascending
+
 # Save debug images for troubleshooting
 python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 ```
@@ -104,6 +112,9 @@ python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 - `--bg-color`: Custom background color as RGB values (0-255 each, e.g., 255 0 0 for red)
 - `--gray-value`: Gray background value 0-255 (default: 128)
 
+#### Sorting Settings
+- `--sort-by-y`: Sort segments by Y coordinate - `ascending` (bottom to top) or `descending` (top to bottom) (default: ascending)
+
 #### Other
 - `--save-debug`: Save resized/original images for debugging
 - `--verbose`, `-v`: Enable verbose logging
@@ -122,10 +133,13 @@ output_dir/
 │   ├── image2_segment_000.png
 │   ├── image2_segment_001.png
 │   └── ...
-└── ...
+└── debug/  # Only if --save-debug is used
+    ├── image1_resized.png
+    ├── image1_original.png
+    └── ...
 ```
 
-Each image gets its own subdirectory containing the cropped segments.
+Each image gets its own subdirectory containing the cropped segments. When using `--save-debug`, a `debug` subdirectory is also created with intermediate images.
 
 ## Examples
 
@@ -170,6 +184,23 @@ python sam2_crop_cli.py ./images/ ./output/ \
     --padding 15
 ```
 
+### Example 6: Sorted Output
+```bash
+# Sort segments from top to bottom (useful for reading order)
+python sam2_crop_cli.py ./images/ ./output/ \
+    --sort-by-y descending \
+    --min-area 1000 \
+    --max-area 50000
+```
+
+### Example 7: Debug Mode
+```bash
+# Process with debug images to troubleshoot issues
+python sam2_crop_cli.py ./images/ ./output/ \
+    --save-debug \
+    --verbose
+```
+
 ## Available Models
 
 The tool supports both SAM2.1 and original SAM2 models. You can specify any model by providing the appropriate config file and checkpoint:
@@ -199,6 +230,9 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
    - Default gray background provides good contrast
    - Transparent background (--no-gray-bg) is useful for compositing
    - Custom colors (--bg-color) can match your workflow needs
+7. **Segment Sorting**: 
+   - Use `--sort-by-y descending` for reading order (top to bottom)
+   - Use `--sort-by-y ascending` for reverse reading order (bottom to top)
 
 ## Troubleshooting
 
@@ -225,6 +259,16 @@ Use `--save-debug` to save intermediate images (resized input and original) alon
 - Segmentation quality
 - Area filtering
 - Background handling
+
+The debug images are saved in a `debug/` subdirectory within your output directory.
+
+### Memory Management
+
+The tool includes several memory management features:
+- Automatic CUDA memory clearing between images
+- Automatic fallback to CPU if GPU memory is insufficient
+- Image resizing for large images to prevent memory issues
+- Garbage collection to free memory
 
 ## License
 
