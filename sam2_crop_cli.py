@@ -126,7 +126,7 @@ class SAM2Cropper:
                 config_file=config_file, 
                 ckpt_path=ckpt_path, 
                 device=self.device, 
-                apply_postprocessing=False
+                apply_postprocessing=(self.device == "cuda")
             )
         except Exception as e:
             if "CUDA" in str(e) or "cuda" in str(e).lower() or "memory" in str(e).lower():
