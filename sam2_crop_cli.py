@@ -366,7 +366,7 @@ class SAM2Cropper:
                      output_size: Tuple[int, int] = (1024, 1024),
                      gray_bg: bool = True, gray_value: int = 128,
                      bg_color: Tuple[int, int, int] = None, save_debug: bool = False,
-                     sort_by_y: str = "ascending") -> int:
+                     sort_by_y: str = "ascending", resize_mask_to_original: bool = False) -> int:
         """
         Process a single image and save cropped segments.
         
@@ -379,6 +379,7 @@ class SAM2Cropper:
             hole_size: Hole removal size
             output_size: Output image size
             gray_bg: Whether to use gray background
+            resize_mask_to_original: Whether to resize masks to original image dimensions
             
         Returns:
             Number of segments saved
@@ -394,6 +395,10 @@ class SAM2Cropper:
         
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
+        # Store original image dimensions
+        original_h, original_w = image.shape[:2]
+        logger.info(f"Original image dimensions: {original_w}x{original_h}")
+        
         # Ensure image is in the correct format
         if len(image.shape) != 3 or image.shape[2] != 3:
             logger.error(f"Image must be RGB with 3 channels, got shape: {image.shape}")
@@ -406,11 +411,13 @@ class SAM2Cropper:
         # Resize large images to prevent memory issues
         max_size = 1024
         h, w = image.shape[:2]
+        resize_scale = 1.0
         if h > max_size or w > max_size:
             scale = min(max_size / h, max_size / w)
+            resize_scale = scale
             new_h, new_w = int(h * scale), int(w * scale)
             image = cv2.resize(image, (new_w, new_h))
-            logger.info(f"Resized image from ({h}, {w}) to ({new_h}, {new_w})")
+            logger.info(f"Resized image from ({h}, {w}) to ({new_h}, {new_w}) with scale {scale:.3f}")
             
             # Save resized image for debugging if requested
             if save_debug:
@@ -568,9 +575,24 @@ class SAM2Cropper:
                 # Process mask
                 processed_mask = self.process_mask(mask, padding, hole_size)
                 
+                # Resize mask to original image dimensions if requested
+                if resize_mask_to_original and resize_scale != 1.0:
+                    logger.info(f"Resizing mask {i} from {processed_mask.shape} to original dimensions ({original_h}, {original_w})")
+                    processed_mask = cv2.resize(processed_mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+                    # Ensure mask is binary after resize
+                    processed_mask = (processed_mask > 0).astype(np.uint8) * 255
+                
+                # Use original image for cropping if mask was resized
+                crop_image = image
+                if resize_mask_to_original and resize_scale != 1.0:
+                    # Reload original image for cropping
+                    original_image = cv2.imread(image_path)
+                    original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
+                    crop_image = original_image
+                
                 # Crop and center
                 cropped_image = self.crop_and_center(
-                    image, processed_mask, output_size, gray_bg, gray_value, bg_color
+                    crop_image, processed_mask, output_size, gray_bg, gray_value, bg_color
                 )
                 
                 if cropped_image is not None:
@@ -597,7 +619,8 @@ class SAM2Cropper:
         return saved_count
     
     def process_directory(self, input_dir: str, output_dir: str, 
-                         min_area: int, max_area: int, save_debug: bool = False, sort_by_y: str = "ascending", **kwargs) -> int:
+                         min_area: int, max_area: int, save_debug: bool = False, sort_by_y: str = "ascending", 
+                         resize_mask_to_original: bool = False, **kwargs) -> int:
         """
         Process all images in a directory.
         
@@ -606,6 +629,9 @@ class SAM2Cropper:
             output_dir: Output directory
             min_area: Minimum area threshold
             max_area: Maximum area threshold
+            save_debug: Whether to save debug images
+            sort_by_y: Sort order for segments by Y coordinate
+            resize_mask_to_original: Whether to resize masks to original image dimensions
             **kwargs: Additional arguments for process_image
             
         Returns:
@@ -634,7 +660,8 @@ class SAM2Cropper:
         for image_file in image_files:
             try:
                 segments = self.process_image(
-                    str(image_file), output_dir, min_area, max_area, save_debug=save_debug, sort_by_y=sort_by_y, **kwargs
+                    str(image_file), output_dir, min_area, max_area, save_debug=save_debug, 
+                    sort_by_y=sort_by_y, resize_mask_to_original=resize_mask_to_original, **kwargs
                 )
                 total_segments += segments
             except Exception as e:
@@ -679,6 +706,9 @@ Examples:
   
   # Sort segments by Y coordinate in ascending order (bottom to top, default)
   python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y ascending
+  
+  # Resize masks to original image dimensions before cropping
+  python sam2_crop_cli.py input_dir/ output_dir/ --resize-mask-to-original
         """
     )
     
@@ -720,6 +750,10 @@ Examples:
     # Sorting arguments
     parser.add_argument("--sort-by-y", choices=["ascending", "descending"], default="ascending",
                        help="Sort segments by Y coordinate (default: ascending)")
+    
+    # Mask processing arguments
+    parser.add_argument("--resize-mask-to-original", action="store_true",
+                       help="Resize masks to original image dimensions before cropping (useful when input was resized)")
     
     # Other arguments
     parser.add_argument("--save-debug", action="store_true",
@@ -774,7 +808,8 @@ Examples:
                 padding=args.padding, hole_size=args.hole_size,
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
                 gray_value=args.gray_value, bg_color=args.bg_color,
-                save_debug=args.save_debug, sort_by_y=args.sort_by_y
+                save_debug=args.save_debug, sort_by_y=args.sort_by_y,
+                resize_mask_to_original=args.resize_mask_to_original
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
         else:
@@ -784,7 +819,8 @@ Examples:
                 padding=args.padding, hole_size=args.hole_size,
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
                 gray_value=args.gray_value, bg_color=args.bg_color,
-                save_debug=args.save_debug, sort_by_y=args.sort_by_y
+                save_debug=args.save_debug, sort_by_y=args.sort_by_y,
+                resize_mask_to_original=args.resize_mask_to_original
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
             

@@ -13,6 +13,7 @@ A command-line interface tool that uses SAM2 (Segment Anything Model 2) to autom
 - **Padding**: Add padding around segments to include boundary pixels
 - **Custom Background Colors**: Support for gray, transparent, or custom RGB backgrounds
 - **Segment Sorting**: Sort segments by Y coordinate (top-to-bottom or bottom-to-top)
+- **Mask Resizing**: Option to resize masks to original image dimensions for higher quality segments
 - **Debug Mode**: Save intermediate images for debugging
 - **Robust Error Handling**: Automatic CUDA fallback and memory management
 
@@ -80,6 +81,9 @@ python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y descending
 # Sort segments by Y coordinate in ascending order (bottom to top, default)
 python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y ascending
 
+# Resize masks to original image dimensions before cropping
+python sam2_crop_cli.py input_dir/ output_dir/ --resize-mask-to-original
+
 # Save debug images for troubleshooting
 python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 ```
@@ -114,6 +118,9 @@ python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 
 #### Sorting Settings
 - `--sort-by-y`: Sort segments by Y coordinate - `ascending` (bottom to top) or `descending` (top to bottom) (default: ascending)
+
+#### Mask Processing Settings
+- `--resize-mask-to-original`: Resize masks to original image dimensions before cropping (useful when input was resized)
 
 #### Other
 - `--save-debug`: Save resized/original images for debugging
@@ -201,6 +208,16 @@ python sam2_crop_cli.py ./images/ ./output/ \
     --verbose
 ```
 
+### Example 8: High-Quality Segments with Original Dimensions
+```bash
+# Resize masks to original image dimensions for higher quality segments
+python sam2_crop_cli.py ./images/ ./output/ \
+    --resize-mask-to-original \
+    --min-area 1000 \
+    --max-area 50000 \
+    --padding 15
+```
+
 ## Available Models
 
 The tool supports both SAM2.1 and original SAM2 models. You can specify any model by providing the appropriate config file and checkpoint:
@@ -233,6 +250,10 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
 7. **Segment Sorting**: 
    - Use `--sort-by-y descending` for reading order (top to bottom)
    - Use `--sort-by-y ascending` for reverse reading order (bottom to top)
+8. **Mask Resizing**: 
+   - Use `--resize-mask-to-original` when working with high-resolution images that get resized for processing
+   - This ensures segments maintain the original image's detail and precision
+   - Particularly useful when the input image is automatically resized (e.g., from 2048x2048 to 1024x1024) for memory management
 
 ## Troubleshooting
 
@@ -259,6 +280,7 @@ Use `--save-debug` to save intermediate images (resized input and original) alon
 - Segmentation quality
 - Area filtering
 - Background handling
+- Mask resizing behavior
 
 The debug images are saved in a `debug/` subdirectory within your output directory.
 
