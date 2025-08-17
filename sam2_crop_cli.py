@@ -353,6 +353,9 @@ class SAM2Cropper:
         Returns:
             Number of segments saved
         """
+        # Add logging for image
+        logger.info(f"Started processing image: {image_path}")
+        
         # Load image
         image = cv2.imread(image_path)
         if image is None:
@@ -557,6 +560,7 @@ class SAM2Cropper:
             gc.collect()
         
         logger.info(f"Saved {saved_count} segments for: {image_path}")
+        logger.info(f"Finished processing image: {image_path}")
         return saved_count
     
     def process_directory(self, input_dir: str, output_dir: str, 
