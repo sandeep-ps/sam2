@@ -98,7 +98,7 @@ class SAM2Cropper:
             return "cpu"
     
     def __init__(self, device: str = "cpu", 
-                 config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt", min_mask_region_area: int = 100):
+                 config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt"):
         """
         Initialize SAM2 cropper.
         
@@ -106,7 +106,6 @@ class SAM2Cropper:
             device: Device to run inference on ('cuda' or 'cpu')
             config_file: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
             ckpt_path: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
-            min_mask_region_area: Minimum mask region area (default: 100)
         """
         # Setup CUDA environment
         self._setup_cuda_environment()
@@ -123,13 +122,11 @@ class SAM2Cropper:
         logger.info(f"Loading SAM2 model with config: {config_file}")
         try:
             logger.info(f"Using config: {config_file} and checkpoint: {ckpt_path}")
-            # Set apply_postprocessing to True when using CUDA
-            apply_postprocessing = (self.device == "cuda")
             self.model = build_sam2(
                 config_file=config_file, 
                 ckpt_path=ckpt_path, 
                 device=self.device, 
-                apply_postprocessing=apply_postprocessing
+                apply_postprocessing=False
             )
         except Exception as e:
             if "CUDA" in str(e) or "cuda" in str(e).lower() or "memory" in str(e).lower():
@@ -152,7 +149,7 @@ class SAM2Cropper:
             crop_n_layers=1,
             crop_n_points_downscale_factor=2,
             crop_overlap_ratio=0.5,
-            min_mask_region_area=min_mask_region_area,
+            min_mask_region_area=100,
         )
         
         logger.info(f"SAM2 model loaded successfully on device: {self.device}")
@@ -471,7 +468,7 @@ class SAM2Cropper:
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
                     crop_overlap_ratio=0.5,
-                    min_mask_region_area=self.mask_generator.min_mask_region_area,
+                    min_mask_region_area=100,
                 ) 
                 
                 masks = self.mask_generator.generate(image)
@@ -489,7 +486,7 @@ class SAM2Cropper:
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
                     crop_overlap_ratio=0.5,
-                    min_mask_region_area=self.mask_generator.min_mask_region_area,
+                    min_mask_region_area=100,
                 )
                 
                 masks = self.mask_generator.generate(image)
@@ -513,7 +510,7 @@ class SAM2Cropper:
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
                     crop_overlap_ratio=0.5,
-                    min_mask_region_area=self.mask_generator.min_mask_region_area,
+                    min_mask_region_area=100,
                 )
                 
                 masks = self.mask_generator.generate(image)
@@ -766,8 +763,7 @@ Examples:
         cropper = SAM2Cropper(
             device=args.device,
             config_file=args.config_file,
-            ckpt_path=args.ckpt_path,
-            min_mask_region_area=args.min_area
+            ckpt_path=args.ckpt_path
         )
         
         # Process input
