@@ -154,6 +154,36 @@ class SAM2Cropper:
         
         logger.info(f"SAM2 model loaded successfully on device: {self.device}")
         
+    def print_mask_areas(self, masks: List[Dict]) -> None:
+        """
+        Print the area of all masks.
+        
+        Args:
+            masks: List of mask dictionaries
+        """
+        if not masks:
+            logger.info("No masks to print areas for")
+            return
+            
+        logger.info(f"Printing areas for {len(masks)} masks:")
+        total_area = 0
+        
+        for i, mask in enumerate(masks):
+            area = mask['area']
+            total_area += area
+            logger.info(f"  Mask {i:3d}: {area:8d} pixels")
+            
+        logger.info(f"Total area of all masks: {total_area:,} pixels")
+        logger.info(f"Average area per mask: {total_area // len(masks):,} pixels")
+        
+        # Also print area statistics
+        areas = [mask['area'] for mask in masks]
+        areas.sort()
+        logger.info(f"Area statistics:")
+        logger.info(f"  Min area: {areas[0]:,} pixels")
+        logger.info(f"  Max area: {areas[-1]:,} pixels")
+        logger.info(f"  Median area: {areas[len(areas)//2]:,} pixels")
+    
     def filter_masks_by_area(self, masks: List[Dict], min_area: int, max_area: int) -> List[Dict]:
         """
         Filter masks based on area thresholds.
@@ -488,6 +518,9 @@ class SAM2Cropper:
             except Exception as fallback_error:
                 logger.error(f"All mask generation attempts failed: {fallback_error}")
                 raise
+        
+        # Print areas of all masks
+        self.print_mask_areas(masks)
         
         # Filter by area
         filtered_masks = self.filter_masks_by_area(masks, min_area, max_area)
