@@ -78,6 +78,9 @@ python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
 # Use custom minimum mask region area
 python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 1024
 
+# Use custom maximum resize dimension
+python sam2_crop_cli.py input_dir/ output_dir/ --max-resize-dimension 2048
+
 # Sort segments by Y coordinate in descending order (top to bottom)
 python sam2_crop_cli.py input_dir/ output_dir/ --sort-by-y descending
 
@@ -108,6 +111,7 @@ python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 - `--config-file`: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
 - `--ckpt-path`: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
 - `--min-mask-region-area`: Minimum mask region area in pixels (default: 512)
+- `--max-resize-dimension`: Maximum dimension for image resizing (default: 1024)
 
 #### Processing Settings
 - `--padding`: Padding size in pixels around segments (default: 10)
@@ -231,6 +235,15 @@ python sam2_crop_cli.py ./images/ ./output/ \
     --max-area 50000
 ```
 
+### Example 10: Custom Maximum Resize Dimension
+```bash
+# Use larger maximum resize dimension for higher quality processing of large images
+python sam2_crop_cli.py ./images/ ./output/ \
+    --max-resize-dimension 2048 \
+    --min-area 1000 \
+    --max-area 50000
+```
+
 ## Available Models
 
 The tool supports both SAM2.1 and original SAM2 models. You can specify any model by providing the appropriate config file and checkpoint:
@@ -273,6 +286,13 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
    - Lower values (e.g., 256) allow smaller segments for more detailed segmentation
    - This parameter affects the initial segmentation, while `--min-area` filters the final results
 
+10. **Maximum Resize Dimension**: 
+    - Use `--max-resize-dimension` to control the maximum size of images during processing
+    - Larger images are automatically resized to this dimension to prevent memory issues
+    - Higher values (e.g., 2048) preserve more detail but use more memory
+    - Lower values (e.g., 512) use less memory but may lose some detail
+    - Default value of 1024 provides a good balance between quality and memory usage
+
 ## Troubleshooting
 
 ### Common Issues
@@ -291,6 +311,8 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
 - Use smaller models for faster processing
 - Process images in smaller batches if memory is limited
 - Use smaller output sizes to save storage space
+- Use smaller `--max-resize-dimension` values to reduce memory usage
+- Use larger `--max-resize-dimension` values for higher quality processing of large images
 
 ### Debug Mode
 
@@ -308,7 +330,7 @@ The debug images are saved in a `debug/` subdirectory within your output directo
 The tool includes several memory management features:
 - Automatic CUDA memory clearing between images
 - Automatic fallback to CPU if GPU memory is insufficient
-- Image resizing for large images to prevent memory issues
+- Image resizing for large images to prevent memory issues (controlled by `--max-resize-dimension`)
 - Garbage collection to free memory
 
 ## License

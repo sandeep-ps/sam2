@@ -99,7 +99,7 @@ class SAM2Cropper:
     
     def __init__(self, device: str = "cpu", 
                  config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt",
-                 min_mask_region_area: int = 512):
+                 min_mask_region_area: int = 512, max_resize_dimension: int = 1024):
         """
         Initialize SAM2 cropper.
         
@@ -108,6 +108,7 @@ class SAM2Cropper:
             config_file: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
             ckpt_path: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
             min_mask_region_area: Minimum mask region area in pixels (default: 512)
+            max_resize_dimension: Maximum dimension for image resizing (default: 1024)
         """
         # Setup CUDA environment
         self._setup_cuda_environment()
@@ -120,6 +121,7 @@ class SAM2Cropper:
         self.config_file = config_file
         self.ckpt_path = ckpt_path
         self.min_mask_region_area = min_mask_region_area
+        self.max_resize_dimension = max_resize_dimension
         
         # Build SAM2 model with error handling
         logger.info(f"Loading SAM2 model with config: {config_file}")
@@ -369,7 +371,8 @@ class SAM2Cropper:
                      output_size: Tuple[int, int] = (1024, 1024),
                      gray_bg: bool = True, gray_value: int = 128,
                      bg_color: Tuple[int, int, int] = None, save_debug: bool = False,
-                     sort_by_y: str = "ascending", resize_mask_to_original: bool = False) -> int:
+                     sort_by_y: str = "ascending", resize_mask_to_original: bool = False,
+                     max_resize_dimension: int = None) -> int:
         """
         Process a single image and save cropped segments.
         
@@ -383,6 +386,7 @@ class SAM2Cropper:
             output_size: Output image size
             gray_bg: Whether to use gray background
             resize_mask_to_original: Whether to resize masks to original image dimensions
+            max_resize_dimension: Maximum dimension for image resizing (uses instance default if None)
             
         Returns:
             Number of segments saved
@@ -412,7 +416,7 @@ class SAM2Cropper:
             image = image.astype(np.uint8)
         
         # Resize large images to prevent memory issues
-        max_size = 1024
+        max_size = max_resize_dimension if max_resize_dimension is not None else self.max_resize_dimension
         h, w = image.shape[:2]
         resize_scale = 1.0
         if h > max_size or w > max_size:
@@ -623,7 +627,7 @@ class SAM2Cropper:
     
     def process_directory(self, input_dir: str, output_dir: str, 
                          min_area: int, max_area: int, save_debug: bool = False, sort_by_y: str = "ascending", 
-                         resize_mask_to_original: bool = False, **kwargs) -> int:
+                         resize_mask_to_original: bool = False, max_resize_dimension: int = None, **kwargs) -> int:
         """
         Process all images in a directory.
         
@@ -635,6 +639,7 @@ class SAM2Cropper:
             save_debug: Whether to save debug images
             sort_by_y: Sort order for segments by Y coordinate
             resize_mask_to_original: Whether to resize masks to original image dimensions
+            max_resize_dimension: Maximum dimension for image resizing
             **kwargs: Additional arguments for process_image
             
         Returns:
@@ -664,7 +669,8 @@ class SAM2Cropper:
             try:
                 segments = self.process_image(
                     str(image_file), output_dir, min_area, max_area, save_debug=save_debug, 
-                    sort_by_y=sort_by_y, resize_mask_to_original=resize_mask_to_original, **kwargs
+                    sort_by_y=sort_by_y, resize_mask_to_original=resize_mask_to_original, 
+                    max_resize_dimension=max_resize_dimension, **kwargs
                 )
                 total_segments += segments
             except Exception as e:
@@ -715,6 +721,9 @@ Examples:
   
   # Use custom minimum mask region area
   python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 1024
+  
+  # Use custom maximum resize dimension
+  python sam2_crop_cli.py input_dir/ output_dir/ --max-resize-dimension 2048
         """
     )
     
@@ -737,6 +746,8 @@ Examples:
                        help="Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)")
     parser.add_argument("--min-mask-region-area", type=int, default=512,
                        help="Minimum mask region area in pixels (default: 512)")
+    parser.add_argument("--max-resize-dimension", type=int, default=1024,
+                       help="Maximum dimension for image resizing (default: 1024)")
     
     # Processing arguments
     parser.add_argument("--padding", type=int, default=10,
@@ -797,6 +808,10 @@ Examples:
         logger.error("min-mask-region-area must be greater than 0")
         sys.exit(1)
     
+    if args.max_resize_dimension <= 0:
+        logger.error("max-resize-dimension must be greater than 0")
+        sys.exit(1)
+    
     # Validate bg-color if provided
     if args.bg_color is not None:
         for i, val in enumerate(args.bg_color):
@@ -810,7 +825,8 @@ Examples:
             device=args.device,
             config_file=args.config_file,
             ckpt_path=args.ckpt_path,
-            min_mask_region_area=args.min_mask_region_area
+            min_mask_region_area=args.min_mask_region_area,
+            max_resize_dimension=args.max_resize_dimension
         )
         
         # Process input
@@ -822,7 +838,8 @@ Examples:
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
                 gray_value=args.gray_value, bg_color=args.bg_color,
                 save_debug=args.save_debug, sort_by_y=args.sort_by_y,
-                resize_mask_to_original=args.resize_mask_to_original
+                resize_mask_to_original=args.resize_mask_to_original,
+                max_resize_dimension=args.max_resize_dimension
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
         else:
@@ -833,7 +850,8 @@ Examples:
                 output_size=tuple(args.output_size), gray_bg=args.gray_bg,
                 gray_value=args.gray_value, bg_color=args.bg_color,
                 save_debug=args.save_debug, sort_by_y=args.sort_by_y,
-                resize_mask_to_original=args.resize_mask_to_original
+                resize_mask_to_original=args.resize_mask_to_original,
+                max_resize_dimension=args.max_resize_dimension
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
             
