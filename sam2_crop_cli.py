@@ -98,7 +98,8 @@ class SAM2Cropper:
             return "cpu"
     
     def __init__(self, device: str = "cpu", 
-                 config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt"):
+                 config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt",
+                 min_mask_region_area: int = 512):
         """
         Initialize SAM2 cropper.
         
@@ -106,6 +107,7 @@ class SAM2Cropper:
             device: Device to run inference on ('cuda' or 'cpu')
             config_file: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
             ckpt_path: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
+            min_mask_region_area: Minimum mask region area in pixels (default: 512)
         """
         # Setup CUDA environment
         self._setup_cuda_environment()
@@ -117,6 +119,7 @@ class SAM2Cropper:
         # Store paths for fallback
         self.config_file = config_file
         self.ckpt_path = ckpt_path
+        self.min_mask_region_area = min_mask_region_area
         
         # Build SAM2 model with error handling
         logger.info(f"Loading SAM2 model with config: {config_file}")
@@ -149,7 +152,7 @@ class SAM2Cropper:
             crop_n_layers=1,
             crop_n_points_downscale_factor=2,
             crop_overlap_ratio=0.5,
-            min_mask_region_area=100,
+            min_mask_region_area=self.min_mask_region_area,
         )
         
         logger.info(f"SAM2 model loaded successfully on device: {self.device}")
@@ -475,7 +478,7 @@ class SAM2Cropper:
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
                     crop_overlap_ratio=0.5,
-                    min_mask_region_area=100,
+                    min_mask_region_area=self.min_mask_region_area,
                 ) 
                 
                 masks = self.mask_generator.generate(image)
@@ -493,7 +496,7 @@ class SAM2Cropper:
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
                     crop_overlap_ratio=0.5,
-                    min_mask_region_area=100,
+                    min_mask_region_area=self.min_mask_region_area,
                 )
                 
                 masks = self.mask_generator.generate(image)
@@ -517,7 +520,7 @@ class SAM2Cropper:
                     crop_n_layers=1,
                     crop_n_points_downscale_factor=2,
                     crop_overlap_ratio=0.5,
-                    min_mask_region_area=100,
+                    min_mask_region_area=self.min_mask_region_area,
                 )
                 
                 masks = self.mask_generator.generate(image)
@@ -709,6 +712,9 @@ Examples:
   
   # Resize masks to original image dimensions before cropping
   python sam2_crop_cli.py input_dir/ output_dir/ --resize-mask-to-original
+  
+  # Use custom minimum mask region area
+  python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 1024
         """
     )
     
@@ -729,6 +735,8 @@ Examples:
                        help="Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)")
     parser.add_argument("--ckpt-path", type=str, default="checkpoints/sam2.1_hiera_base_plus.pt",
                        help="Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)")
+    parser.add_argument("--min-mask-region-area", type=int, default=512,
+                       help="Minimum mask region area in pixels (default: 512)")
     
     # Processing arguments
     parser.add_argument("--padding", type=int, default=10,
@@ -785,6 +793,10 @@ Examples:
         logger.error("gray-value must be between 0 and 255")
         sys.exit(1)
     
+    if args.min_mask_region_area <= 0:
+        logger.error("min-mask-region-area must be greater than 0")
+        sys.exit(1)
+    
     # Validate bg-color if provided
     if args.bg_color is not None:
         for i, val in enumerate(args.bg_color):
@@ -797,7 +809,8 @@ Examples:
         cropper = SAM2Cropper(
             device=args.device,
             config_file=args.config_file,
-            ckpt_path=args.ckpt_path
+            ckpt_path=args.ckpt_path,
+            min_mask_region_area=args.min_mask_region_area
         )
         
         # Process input
