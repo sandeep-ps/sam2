@@ -94,6 +94,53 @@ python sam2_crop_cli.py input_dir/ output_dir/ --resize-mask-to-original
 python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 ```
 
+### Usage Full Details
+
+```
+usage: sam2_crop_cli.py [-h] [--min-area MIN_AREA] [--max-area MAX_AREA] [--device {cuda,cpu}] [--config-file CONFIG_FILE]
+                        [--ckpt-path CKPT_PATH] [--min-mask-region-area MIN_MASK_REGION_AREA]
+                        [--max-resize-dimension MAX_RESIZE_DIMENSION] [--padding PADDING] [--hole-size HOLE_SIZE]
+                        [--output-size WIDTH HEIGHT] [--gray-bg] [--no-gray-bg] [--bg-color R G B] [--gray-value GRAY_VALUE]
+                        [--sort-by-y {ascending,descending}] [--resize-mask-to-original] [--save-debug] [--verbose]
+                        input output
+
+SAM2 Image Cropping Tool - Automatically crop image segments using SAM2
+
+positional arguments:
+  input                 Input image file or directory
+  output                Output directory
+
+options:
+  -h, --help            show this help message and exit
+  --min-area MIN_AREA   Minimum area threshold in pixels (default: 100)
+  --max-area MAX_AREA   Maximum area threshold in pixels (default: 1000000)
+  --device {cuda,cpu}   Device to run inference on (default: cpu)
+  --config-file CONFIG_FILE
+                        Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
+  --ckpt-path CKPT_PATH
+                        Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
+  --min-mask-region-area MIN_MASK_REGION_AREA
+                        Minimum mask region area in pixels (default: 512)
+  --max-resize-dimension MAX_RESIZE_DIMENSION
+                        Maximum dimension for image resizing (default: 1024)
+  --padding PADDING     Padding size in pixels (default: 10)
+  --hole-size HOLE_SIZE
+                        Size of holes to remove (default: 5)
+  --output-size WIDTH HEIGHT
+                        Output image size (default: 1024 1024)
+  --gray-bg             Use gray background (default: True)
+  --no-gray-bg          Use transparent (black) background
+  --bg-color R G B      Custom background color as RGB values (0-255 each)
+  --gray-value GRAY_VALUE
+                        Gray background value (0-255, default: 128)
+  --sort-by-y {ascending,descending}
+                        Sort segments by Y coordinate (default: ascending)
+  --resize-mask-to-original
+                        Resize masks to original image dimensions before cropping (useful when input was resized)
+  --save-debug          Save resized/original images for debugging
+  --verbose, -v         Enable verbose logging
+```
+
 ## Command Line Arguments
 
 ### Required Arguments
