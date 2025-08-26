@@ -372,7 +372,7 @@ class SAM2Cropper:
                      gray_bg: bool = True, gray_value: int = 128,
                      bg_color: Tuple[int, int, int] = None, save_debug: bool = False,
                      sort_by_y: str = "ascending", resize_mask_to_original: bool = False,
-                     max_resize_dimension: int = None) -> int:
+                     max_resize_dimension: int = None, overwrite: bool = False) -> int:
         """
         Process a single image and save cropped segments.
         
@@ -387,6 +387,7 @@ class SAM2Cropper:
             gray_bg: Whether to use gray background
             resize_mask_to_original: Whether to resize masks to original image dimensions
             max_resize_dimension: Maximum dimension for image resizing (uses instance default if None)
+            overwrite: Whether to overwrite existing segment images (default: False)
             
         Returns:
             Number of segments saved
@@ -605,6 +606,12 @@ class SAM2Cropper:
                 if cropped_image is not None:
                     # Save cropped image
                     output_path = os.path.join(image_output_dir, f"{image_name}_segment_{i:03d}.png")
+                    
+                    # Check if file already exists and skip if not overwriting
+                    if not overwrite and os.path.exists(output_path):
+                        logger.info(f"Skipping existing segment: {output_path}")
+                        continue
+                    
                     cropped_image_bgr = cv2.cvtColor(cropped_image, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(output_path, cropped_image_bgr)
                     saved_count += 1
@@ -627,7 +634,8 @@ class SAM2Cropper:
     
     def process_directory(self, input_dir: str, output_dir: str, 
                          min_area: int, max_area: int, save_debug: bool = False, sort_by_y: str = "ascending", 
-                         resize_mask_to_original: bool = False, max_resize_dimension: int = None, **kwargs) -> int:
+                         resize_mask_to_original: bool = False, max_resize_dimension: int = None, 
+                         overwrite: bool = False, **kwargs) -> int:
         """
         Process all images in a directory.
         
@@ -640,6 +648,7 @@ class SAM2Cropper:
             sort_by_y: Sort order for segments by Y coordinate
             resize_mask_to_original: Whether to resize masks to original image dimensions
             max_resize_dimension: Maximum dimension for image resizing
+            overwrite: Whether to overwrite existing segment images (default: False)
             **kwargs: Additional arguments for process_image
             
         Returns:
@@ -670,7 +679,7 @@ class SAM2Cropper:
                 segments = self.process_image(
                     str(image_file), output_dir, min_area, max_area, save_debug=save_debug, 
                     sort_by_y=sort_by_y, resize_mask_to_original=resize_mask_to_original, 
-                    max_resize_dimension=max_resize_dimension, **kwargs
+                    max_resize_dimension=max_resize_dimension, overwrite=overwrite, **kwargs
                 )
                 total_segments += segments
             except Exception as e:
@@ -724,6 +733,9 @@ Examples:
   
   # Use custom maximum resize dimension
   python sam2_crop_cli.py input_dir/ output_dir/ --max-resize-dimension 2048
+  
+  # Overwrite existing segment images
+  python sam2_crop_cli.py input_dir/ output_dir/ --overwrite
         """
     )
     
@@ -775,6 +787,8 @@ Examples:
                        help="Resize masks to original image dimensions before cropping (useful when input was resized)")
     
     # Other arguments
+    parser.add_argument("--overwrite", action="store_true",
+                       help="Overwrite existing segment images (default: skip existing segments)")
     parser.add_argument("--save-debug", action="store_true",
                        help="Save resized/original images for debugging")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -839,7 +853,8 @@ Examples:
                 gray_value=args.gray_value, bg_color=args.bg_color,
                 save_debug=args.save_debug, sort_by_y=args.sort_by_y,
                 resize_mask_to_original=args.resize_mask_to_original,
-                max_resize_dimension=args.max_resize_dimension
+                max_resize_dimension=args.max_resize_dimension,
+                overwrite=args.overwrite
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
         else:
@@ -851,7 +866,8 @@ Examples:
                 gray_value=args.gray_value, bg_color=args.bg_color,
                 save_debug=args.save_debug, sort_by_y=args.sort_by_y,
                 resize_mask_to_original=args.resize_mask_to_original,
-                max_resize_dimension=args.max_resize_dimension
+                max_resize_dimension=args.max_resize_dimension,
+                overwrite=args.overwrite
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
             

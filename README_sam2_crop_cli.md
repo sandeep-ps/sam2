@@ -15,6 +15,7 @@ A command-line interface tool that uses SAM2 (Segment Anything Model 2) to autom
 - **Segment Sorting**: Sort segments by Y coordinate (top-to-bottom or bottom-to-top)
 - **Mask Resizing**: Option to resize masks to original image dimensions for higher quality segments
 - **Debug Mode**: Save intermediate images for debugging
+- **Overwrite Control**: Option to overwrite existing segment images or skip them
 - **Robust Error Handling**: Automatic CUDA fallback and memory management
 
 ## Installation
@@ -92,6 +93,9 @@ python sam2_crop_cli.py input_dir/ output_dir/ --resize-mask-to-original
 
 # Save debug images for troubleshooting
 python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
+
+# Overwrite existing segment images
+python sam2_crop_cli.py input_dir/ output_dir/ --overwrite
 ```
 
 ### Usage Full Details
@@ -101,7 +105,7 @@ usage: sam2_crop_cli.py [-h] [--min-area MIN_AREA] [--max-area MAX_AREA] [--devi
                         [--ckpt-path CKPT_PATH] [--min-mask-region-area MIN_MASK_REGION_AREA]
                         [--max-resize-dimension MAX_RESIZE_DIMENSION] [--padding PADDING] [--hole-size HOLE_SIZE]
                         [--output-size WIDTH HEIGHT] [--gray-bg] [--no-gray-bg] [--bg-color R G B] [--gray-value GRAY_VALUE]
-                        [--sort-by-y {ascending,descending}] [--resize-mask-to-original] [--save-debug] [--verbose]
+                        [--sort-by-y {ascending,descending}] [--resize-mask-to-original] [--overwrite] [--save-debug] [--verbose]
                         input output
 
 SAM2 Image Cropping Tool - Automatically crop image segments using SAM2
@@ -137,6 +141,7 @@ options:
                         Sort segments by Y coordinate (default: ascending)
   --resize-mask-to-original
                         Resize masks to original image dimensions before cropping (useful when input was resized)
+  --overwrite           Overwrite existing segment images (default: skip existing segments)
   --save-debug          Save resized/original images for debugging
   --verbose, -v         Enable verbose logging
 ```
@@ -178,6 +183,7 @@ options:
 - `--resize-mask-to-original`: Resize masks to original image dimensions before cropping (useful when input was resized)
 
 #### Other
+- `--overwrite`: Overwrite existing segment images (default: skip existing segments)
 - `--save-debug`: Save resized/original images for debugging
 - `--verbose`, `-v`: Enable verbose logging
 
@@ -291,6 +297,15 @@ python sam2_crop_cli.py ./images/ ./output/ \
     --max-area 50000
 ```
 
+### Example 11: Overwrite Existing Segments
+```bash
+# Overwrite existing segment images instead of skipping them
+python sam2_crop_cli.py ./images/ ./output/ \
+    --overwrite \
+    --min-area 1000 \
+    --max-area 50000
+```
+
 ## Available Models
 
 The tool supports both SAM2.1 and original SAM2 models. You can specify any model by providing the appropriate config file and checkpoint:
@@ -340,6 +355,12 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
     - Lower values (e.g., 512) use less memory but may lose some detail
     - Default value of 1024 provides a good balance between quality and memory usage
 
+11. **Overwrite Control**: 
+    - By default, the tool skips existing segment images to avoid overwriting previous work
+    - Use `--overwrite` to force regeneration of all segments, overwriting existing files
+    - Useful when you want to update segments with new parameters or model settings
+    - The tool logs which segments are being skipped when overwrite is disabled
+
 ## Troubleshooting
 
 ### Common Issues
@@ -351,6 +372,7 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
 5. **Out of memory**: Use smaller model or reduce `--output-size`
 6. **CUDA errors**: The tool automatically falls back to CPU if CUDA issues occur
 7. **Too many tiny segments during generation**: Increase `--min-mask-region-area` to filter out small segments earlier in the process
+8. **Existing segments not being updated**: Use `--overwrite` to force regeneration of all segments
 
 ### Performance Tips
 
