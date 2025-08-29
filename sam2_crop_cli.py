@@ -99,16 +99,16 @@ class SAM2Cropper:
     
     def __init__(self, device: str = "cpu", 
                  config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml", ckpt_path: str = "checkpoints/sam2.1_hiera_base_plus.pt",
-                 min_mask_region_area: int = 512, max_resize_dimension: int = 1024):
+                 min_mask_region_area: int = 256, max_resize_dimension: int = 2048):
         """
-        Initialize SAM2 cropper.
+        Initialize SAM2 cropper with enhanced parameters for better segmentation accuracy.
         
         Args:
             device: Device to run inference on ('cuda' or 'cpu')
             config_file: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
             ckpt_path: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
-            min_mask_region_area: Minimum mask region area in pixels (default: 512)
-            max_resize_dimension: Maximum dimension for image resizing (default: 1024)
+            min_mask_region_area: Minimum mask region area in pixels (default: 256, reduced for better detail)
+            max_resize_dimension: Maximum dimension for image resizing (default: 2048, increased for better detail)
         """
         # Setup CUDA environment
         self._setup_cuda_environment()
@@ -146,14 +146,19 @@ class SAM2Cropper:
             else:
                 raise e
         
-        # Initialize automatic mask generator
+        # Initialize automatic mask generator with enhanced parameters for better segmentation
         self.mask_generator = SAM2AutomaticMaskGenerator(
             model=self.model,
-            points_per_side=64,
-            points_per_batch=128,
-            crop_n_layers=1,
+            points_per_side=64,  # Increased from 32 for better coverage
+            points_per_batch=128,  # Increased from 64 for better batching
+            pred_iou_thresh=0.88,  # Increased from 0.8 for higher quality masks
+            stability_score_thresh=0.95,  # Keep high for stability
+            mask_threshold=0.0,
+            box_nms_thresh=0.7,  # For duplicate removal
+            crop_n_layers=1,  # Enable multi-layer cropping for better detail
+            crop_nms_thresh=0.7,
+            crop_overlap_ratio=0.5,  # Increased overlap for better coverage
             crop_n_points_downscale_factor=2,
-            crop_overlap_ratio=0.5,
             min_mask_region_area=self.min_mask_region_area,
         )
         
@@ -233,14 +238,17 @@ class SAM2Cropper:
         logger.info(f"Removed background mask (area: {sorted_masks[0]['area']})")
         return filtered_masks
     
-    def process_mask(self, mask: Dict, padding: int = 10, hole_size: int = 5) -> np.ndarray:
+    def process_mask(self, mask: Dict, padding: int = 10, hole_size: int = 5, 
+                    min_area: int = 100, morph_kernel_size: int = 5) -> np.ndarray:
         """
-        Process a single mask with padding and hole removal.
+        Enhanced mask processing with multiple cleaning steps for better segmentation quality.
         
         Args:
             mask: Mask dictionary
             padding: Padding size in pixels
             hole_size: Size of holes to remove
+            min_area: Minimum area for small region removal
+            morph_kernel_size: Kernel size for morphological operations
             
         Returns:
             Processed binary mask
@@ -261,20 +269,37 @@ class SAM2Cropper:
             if len(binary_mask.shape) > 2:
                 binary_mask = binary_mask.squeeze()
             
-            # Ensure mask is the right type
-            if binary_mask.dtype != np.uint8:
+            # Ensure mask is the right type and format for OpenCV operations
+            if binary_mask.dtype == bool:
+                binary_mask = binary_mask.astype(np.uint8) * 255
+            elif binary_mask.dtype != np.uint8:
                 binary_mask = binary_mask.astype(np.uint8)
                 
         except Exception as e:
             logger.error(f"Error processing mask: {e}")
             raise
         
-        # Remove small holes
+        # Step 1: Remove small regions using SAM2 utilities
+        if min_area > 0:
+            binary_mask, _ = remove_small_regions(binary_mask, min_area, mode="holes")
+            binary_mask, _ = remove_small_regions(binary_mask, min_area, mode="islands")
+            # Convert boolean mask back to uint8 for OpenCV operations
+            binary_mask = binary_mask.astype(np.uint8) * 255
+        
+        # Step 2: Morphological cleaning for better mask quality
+        if morph_kernel_size > 0:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size))
+            # Close small holes
+            binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel)
+            # Remove small noise
+            binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel)
+        
+        # Step 3: Additional hole removal with specified size
         if hole_size > 0:
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (hole_size, hole_size))
             binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel)
         
-        # Add padding using dilation
+        # Step 4: Add padding using dilation
         if padding > 0:
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (padding*2+1, padding*2+1))
             binary_mask = cv2.dilate(binary_mask, kernel, iterations=1)
@@ -372,7 +397,8 @@ class SAM2Cropper:
                      gray_bg: bool = True, gray_value: int = 128,
                      bg_color: Tuple[int, int, int] = None, save_debug: bool = False,
                      sort_by_y: str = "ascending", resize_mask_to_original: bool = False,
-                     max_resize_dimension: int = None, overwrite: bool = False) -> int:
+                     max_resize_dimension: int = None, overwrite: bool = False,
+                     morph_kernel_size: int = 5) -> int:
         """
         Process a single image and save cropped segments.
         
@@ -388,6 +414,7 @@ class SAM2Cropper:
             resize_mask_to_original: Whether to resize masks to original image dimensions
             max_resize_dimension: Maximum dimension for image resizing (uses instance default if None)
             overwrite: Whether to overwrite existing segment images (default: False)
+            morph_kernel_size: Kernel size for morphological operations (default: 5)
             
         Returns:
             Number of segments saved
@@ -456,8 +483,13 @@ class SAM2Cropper:
                 import gc
                 gc.collect()
             
-            masks = self.mask_generator.generate(image)
-            logger.info(f"Generated {len(masks)} masks")
+            # Use multi-scale processing if requested
+            if hasattr(self, 'use_multi_scale') and self.use_multi_scale:
+                logger.info("Using multi-scale processing for better segmentation coverage")
+                masks = self.multi_scale_segmentation(image, self.scales)
+            else:
+                masks = self.mask_generator.generate(image)
+                logger.info(f"Generated {len(masks)} masks")
             
         except (RuntimeError, IndexError) as e:
             error_msg = str(e)
@@ -580,8 +612,12 @@ class SAM2Cropper:
         saved_count = 0
         for i, mask in enumerate(filtered_masks):
             try:
-                # Process mask
-                processed_mask = self.process_mask(mask, padding, hole_size)
+                # Process mask with enhanced parameters
+                processed_mask = self.process_mask(
+                    mask, padding, hole_size, 
+                    min_area=min_area,  # Use the min_area parameter for small region removal
+                    morph_kernel_size=args.morph_kernel_size if 'args' in locals() else 5  # Use CLI parameter if available
+                )
                 
                 # Resize mask to original image dimensions if requested
                 if resize_mask_to_original and resize_scale != 1.0:
@@ -635,7 +671,7 @@ class SAM2Cropper:
     def process_directory(self, input_dir: str, output_dir: str, 
                          min_area: int, max_area: int, save_debug: bool = False, sort_by_y: str = "ascending", 
                          resize_mask_to_original: bool = False, max_resize_dimension: int = None, 
-                         overwrite: bool = False, **kwargs) -> int:
+                         overwrite: bool = False, morph_kernel_size: int = 5, **kwargs) -> int:
         """
         Process all images in a directory.
         
@@ -679,14 +715,76 @@ class SAM2Cropper:
                 segments = self.process_image(
                     str(image_file), output_dir, min_area, max_area, save_debug=save_debug, 
                     sort_by_y=sort_by_y, resize_mask_to_original=resize_mask_to_original, 
-                    max_resize_dimension=max_resize_dimension, overwrite=overwrite, **kwargs
+                    max_resize_dimension=max_resize_dimension, overwrite=overwrite, 
+                    morph_kernel_size=morph_kernel_size, **kwargs
                 )
                 total_segments += segments
             except Exception as e:
                 logger.error(f"Error processing {image_file}: {e}")
+                continue  # Continue with next image instead of stopping
         
         logger.info(f"Total segments saved: {total_segments}")
         return total_segments
+    
+    def multi_scale_segmentation(self, image: np.ndarray, scales: List[float] = [0.75, 1.0, 1.25]) -> List[Dict]:
+        """
+        Generate masks at multiple scales and combine them for better segmentation coverage.
+        
+        Args:
+            image: Input image
+            scales: List of scales to process (default: [0.75, 1.0, 1.25])
+            
+        Returns:
+            Combined list of masks from all scales
+        """
+        all_masks = []
+        h, w = image.shape[:2]
+        
+        for scale in scales:
+            logger.info(f"Processing at scale {scale}")
+            
+            # Resize image
+            new_h, new_w = int(h * scale), int(w * scale)
+            scaled_image = cv2.resize(image, (new_w, new_h))
+            
+            # Generate masks
+            try:
+                masks = self.mask_generator.generate(scaled_image)
+                logger.info(f"Generated {len(masks)} masks at scale {scale}")
+            except Exception as e:
+                logger.warning(f"Failed to generate masks at scale {scale}: {e}")
+                continue
+            
+            # Resize masks back to original size
+            for mask in masks:
+                if isinstance(mask['segmentation'], dict):
+                    try:
+                        from pycocotools import mask as mask_utils
+                        binary_mask = mask_utils.decode(mask['segmentation'])
+                    except ImportError:
+                        logger.error("pycocotools is not installed. Please install it with: pip install pycocotools")
+                        continue
+                else:
+                    binary_mask = mask['segmentation']
+                
+                # Resize mask back to original size
+                binary_mask = cv2.resize(binary_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+                
+                # Update mask data
+                mask['segmentation'] = binary_mask
+                mask['area'] = np.sum(binary_mask > 0)
+                
+                # Update bounding box
+                coords = np.where(binary_mask > 0)
+                if len(coords[0]) > 0:
+                    y_min, y_max = coords[0].min(), coords[0].max()
+                    x_min, x_max = coords[1].min(), coords[1].max()
+                    mask['bbox'] = [x_min, y_min, x_max - x_min, y_max - y_min]
+            
+            all_masks.extend(masks)
+        
+        logger.info(f"Total masks from multi-scale processing: {len(all_masks)}")
+        return all_masks
 
 def main():
     """Main CLI function."""
@@ -704,8 +802,8 @@ Examples:
   # Use different output size
   python sam2_crop_cli.py input_dir/ output_dir/ --output-size 512 512
   
-  # Process with custom padding and hole removal
-  python sam2_crop_cli.py input_dir/ output_dir/ --padding 20 --hole-size 10
+  # Process with enhanced padding and hole removal
+  python sam2_crop_cli.py input_dir/ output_dir/ --padding 15 --hole-size 8 --morph-kernel-size 5
   
   # Use transparent background (black)
   python sam2_crop_cli.py input_dir/ output_dir/ --no-gray-bg
@@ -728,14 +826,17 @@ Examples:
   # Resize masks to original image dimensions before cropping
   python sam2_crop_cli.py input_dir/ output_dir/ --resize-mask-to-original
   
-  # Use custom minimum mask region area
-  python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 1024
+  # Use enhanced minimum mask region area
+  python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 256
   
-  # Use custom maximum resize dimension
+  # Use enhanced maximum resize dimension
   python sam2_crop_cli.py input_dir/ output_dir/ --max-resize-dimension 2048
   
   # Overwrite existing segment images
   python sam2_crop_cli.py input_dir/ output_dir/ --overwrite
+  
+  # Use multi-scale processing for better segmentation coverage
+  python sam2_crop_cli.py input_dir/ output_dir/ --multi-scale --scales 0.75 1.0 1.25
         """
     )
     
@@ -756,16 +857,18 @@ Examples:
                        help="Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)")
     parser.add_argument("--ckpt-path", type=str, default="checkpoints/sam2.1_hiera_base_plus.pt",
                        help="Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)")
-    parser.add_argument("--min-mask-region-area", type=int, default=512,
-                       help="Minimum mask region area in pixels (default: 512)")
-    parser.add_argument("--max-resize-dimension", type=int, default=1024,
-                       help="Maximum dimension for image resizing (default: 1024)")
+    parser.add_argument("--min-mask-region-area", type=int, default=256,
+                       help="Minimum mask region area in pixels (default: 256, reduced for better detail)")
+    parser.add_argument("--max-resize-dimension", type=int, default=2048,
+                       help="Maximum dimension for image resizing (default: 2048, increased for better detail)")
     
     # Processing arguments
-    parser.add_argument("--padding", type=int, default=10,
-                       help="Padding size in pixels (default: 10)")
-    parser.add_argument("--hole-size", type=int, default=5,
-                       help="Size of holes to remove (default: 5)")
+    parser.add_argument("--padding", type=int, default=15,
+                       help="Padding size in pixels (default: 15, increased for better coverage)")
+    parser.add_argument("--hole-size", type=int, default=8,
+                       help="Size of holes to remove (default: 8, increased for better cleaning)")
+    parser.add_argument("--morph-kernel-size", type=int, default=5,
+                       help="Kernel size for morphological operations (default: 5)")
     parser.add_argument("--output-size", type=int, nargs=2, default=[1024, 1024],
                        metavar=("WIDTH", "HEIGHT"),
                        help="Output image size (default: 1024 1024)")
@@ -785,6 +888,10 @@ Examples:
     # Mask processing arguments
     parser.add_argument("--resize-mask-to-original", action="store_true",
                        help="Resize masks to original image dimensions before cropping (useful when input was resized)")
+    parser.add_argument("--multi-scale", action="store_true",
+                       help="Use multi-scale processing for better segmentation coverage")
+    parser.add_argument("--scales", type=float, nargs="+", default=[0.75, 1.0, 1.25],
+                       help="Scales for multi-scale processing (default: 0.75 1.0 1.25)")
     
     # Other arguments
     parser.add_argument("--overwrite", action="store_true",
@@ -843,6 +950,12 @@ Examples:
             max_resize_dimension=args.max_resize_dimension
         )
         
+        # Set multi-scale processing options if requested
+        if args.multi_scale:
+            cropper.use_multi_scale = True
+            cropper.scales = args.scales
+            logger.info(f"Multi-scale processing enabled with scales: {args.scales}")
+        
         # Process input
         if os.path.isfile(args.input):
             # Single image
@@ -854,7 +967,8 @@ Examples:
                 save_debug=args.save_debug, sort_by_y=args.sort_by_y,
                 resize_mask_to_original=args.resize_mask_to_original,
                 max_resize_dimension=args.max_resize_dimension,
-                overwrite=args.overwrite
+                overwrite=args.overwrite,
+                morph_kernel_size=args.morph_kernel_size
             )
             logger.info(f"Processing complete. Saved {segments} segments.")
         else:
@@ -867,7 +981,8 @@ Examples:
                 save_debug=args.save_debug, sort_by_y=args.sort_by_y,
                 resize_mask_to_original=args.resize_mask_to_original,
                 max_resize_dimension=args.max_resize_dimension,
-                overwrite=args.overwrite
+                overwrite=args.overwrite,
+                morph_kernel_size=args.morph_kernel_size
             )
             logger.info(f"Processing complete. Saved {segments} total segments.")
             

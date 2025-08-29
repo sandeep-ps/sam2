@@ -9,7 +9,10 @@ A command-line interface tool that uses SAM2 (Segment Anything Model 2) to autom
 - **Batch Processing**: Process entire directories of images
 - **Configurable Output**: Customize output size, padding, and background
 - **Background Removal**: Automatically removes the largest segment (typically background)
-- **Hole Removal**: Remove small holes in segments using morphological operations
+- **Enhanced Segmentation**: Improved SAM2 parameters for better accuracy and coverage
+- **Multi-Scale Processing**: Process images at multiple scales for comprehensive segmentation
+- **Advanced Post-Processing**: Multi-step mask cleaning with morphological operations
+- **Hole and Island Removal**: Remove small holes and disconnected regions using SAM2 utilities
 - **Padding**: Add padding around segments to include boundary pixels
 - **Custom Background Colors**: Support for gray, transparent, or custom RGB backgrounds
 - **Segment Sorting**: Sort segments by Y coordinate (top-to-bottom or bottom-to-top)
@@ -64,8 +67,11 @@ python sam2_crop_cli.py input_dir/ output_dir/ --config-file configs/sam2/sam2_h
 # Custom output size
 python sam2_crop_cli.py input_dir/ output_dir/ --output-size 512 512
 
-# Add padding and remove holes
-python sam2_crop_cli.py input_dir/ output_dir/ --padding 20 --hole-size 10
+# Enhanced processing with improved parameters
+python sam2_crop_cli.py input_dir/ output_dir/ --padding 15 --hole-size 8 --morph-kernel-size 5
+
+# Multi-scale processing for maximum coverage
+python sam2_crop_cli.py input_dir/ output_dir/ --multi-scale --scales 0.75 1.0 1.25
 
 # Use transparent background instead of gray
 python sam2_crop_cli.py input_dir/ output_dir/ --no-gray-bg
@@ -76,10 +82,10 @@ python sam2_crop_cli.py input_dir/ output_dir/ --bg-color 255 0 0
 # Custom gray background value
 python sam2_crop_cli.py input_dir/ output_dir/ --gray-value 200
 
-# Use custom minimum mask region area
-python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 1024
+# Use enhanced minimum mask region area
+python sam2_crop_cli.py input_dir/ output_dir/ --min-mask-region-area 256
 
-# Use custom maximum resize dimension
+# Use enhanced maximum resize dimension
 python sam2_crop_cli.py input_dir/ output_dir/ --max-resize-dimension 2048
 
 # Sort segments by Y coordinate in descending order (top to bottom)
@@ -96,6 +102,9 @@ python sam2_crop_cli.py input_dir/ output_dir/ --save-debug
 
 # Overwrite existing segment images
 python sam2_crop_cli.py input_dir/ output_dir/ --overwrite
+
+# Use multi-scale processing for better segmentation coverage
+python sam2_crop_cli.py input_dir/ output_dir/ --multi-scale --scales 0.75 1.0 1.25
 ```
 
 ### Usage Full Details
@@ -104,8 +113,10 @@ python sam2_crop_cli.py input_dir/ output_dir/ --overwrite
 usage: sam2_crop_cli.py [-h] [--min-area MIN_AREA] [--max-area MAX_AREA] [--device {cuda,cpu}] [--config-file CONFIG_FILE]
                         [--ckpt-path CKPT_PATH] [--min-mask-region-area MIN_MASK_REGION_AREA]
                         [--max-resize-dimension MAX_RESIZE_DIMENSION] [--padding PADDING] [--hole-size HOLE_SIZE]
-                        [--output-size WIDTH HEIGHT] [--gray-bg] [--no-gray-bg] [--bg-color R G B] [--gray-value GRAY_VALUE]
-                        [--sort-by-y {ascending,descending}] [--resize-mask-to-original] [--overwrite] [--save-debug] [--verbose]
+                        [--morph-kernel-size MORPH_KERNEL_SIZE] [--output-size WIDTH HEIGHT] [--gray-bg] [--no-gray-bg]
+                        [--bg-color R G B] [--gray-value GRAY_VALUE] [--sort-by-y {ascending,descending}]
+                        [--resize-mask-to-original] [--multi-scale] [--scales SCALES [SCALES ...]] [--overwrite]
+                        [--save-debug] [--verbose]
                         input output
 
 SAM2 Image Cropping Tool - Automatically crop image segments using SAM2
@@ -124,12 +135,14 @@ options:
   --ckpt-path CKPT_PATH
                         Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
   --min-mask-region-area MIN_MASK_REGION_AREA
-                        Minimum mask region area in pixels (default: 512)
+                        Minimum mask region area in pixels (default: 256, reduced for better detail)
   --max-resize-dimension MAX_RESIZE_DIMENSION
-                        Maximum dimension for image resizing (default: 1024)
-  --padding PADDING     Padding size in pixels (default: 10)
+                        Maximum dimension for image resizing (default: 2048, increased for better detail)
+  --padding PADDING     Padding size in pixels (default: 15, increased for better coverage)
   --hole-size HOLE_SIZE
-                        Size of holes to remove (default: 5)
+                        Size of holes to remove (default: 8, increased for better cleaning)
+  --morph-kernel-size MORPH_KERNEL_SIZE
+                        Kernel size for morphological operations (default: 5)
   --output-size WIDTH HEIGHT
                         Output image size (default: 1024 1024)
   --gray-bg             Use gray background (default: True)
@@ -141,6 +154,9 @@ options:
                         Sort segments by Y coordinate (default: ascending)
   --resize-mask-to-original
                         Resize masks to original image dimensions before cropping (useful when input was resized)
+  --multi-scale         Use multi-scale processing for better segmentation coverage
+  --scales SCALES [SCALES ...]
+                        Scales for multi-scale processing (default: 0.75 1.0 1.25)
   --overwrite           Overwrite existing segment images (default: skip existing segments)
   --save-debug          Save resized/original images for debugging
   --verbose, -v         Enable verbose logging
@@ -162,12 +178,13 @@ options:
 - `--device`: Device to run inference on - `cuda` or `cpu` (default: cpu)
 - `--config-file`: Path to model config file (default: configs/sam2.1/sam2.1_hiera_b+.yaml)
 - `--ckpt-path`: Path to model checkpoint file (default: checkpoints/sam2.1_hiera_base_plus.pt)
-- `--min-mask-region-area`: Minimum mask region area in pixels (default: 512)
-- `--max-resize-dimension`: Maximum dimension for image resizing (default: 1024)
+- `--min-mask-region-area`: Minimum mask region area in pixels (default: 256, reduced for better detail)
+- `--max-resize-dimension`: Maximum dimension for image resizing (default: 2048, increased for better detail)
 
 #### Processing Settings
-- `--padding`: Padding size in pixels around segments (default: 10)
-- `--hole-size`: Size of holes to remove using morphological operations (default: 5)
+- `--padding`: Padding size in pixels around segments (default: 15, increased for better coverage)
+- `--hole-size`: Size of holes to remove using morphological operations (default: 8, increased for better cleaning)
+- `--morph-kernel-size`: Kernel size for morphological operations (default: 5)
 - `--output-size`: Output image size as WIDTH HEIGHT (default: 1024 1024)
 
 #### Background Settings
@@ -181,6 +198,8 @@ options:
 
 #### Mask Processing Settings
 - `--resize-mask-to-original`: Resize masks to original image dimensions before cropping (useful when input was resized)
+- `--multi-scale`: Use multi-scale processing for better segmentation coverage
+- `--scales`: Custom scales for multi-scale processing (default: 0.75 1.0 1.25)
 
 #### Other
 - `--overwrite`: Overwrite existing segment images (default: skip existing segments)
@@ -223,15 +242,18 @@ python sam2_crop_cli.py ./images/ ./output/
 python sam2_crop_cli.py ./images/ ./output/ --min-area 5000 --max-area 50000
 ```
 
-### Example 3: High-Quality Output
+### Example 3: High-Quality Output with Enhanced Processing
 ```bash
-# Use large model, high resolution, and extra padding
+# Use large model, high resolution, and enhanced processing parameters
 python sam2_crop_cli.py ./images/ ./output/ \
     --config-file configs/sam2.1/sam2.1_hiera_l.yaml \
     --ckpt-path checkpoints/sam2.1_hiera_large.pt \
     --output-size 2048 2048 \
-    --padding 30 \
-    --hole-size 10
+    --padding 15 \
+    --hole-size 8 \
+    --morph-kernel-size 5 \
+    --multi-scale \
+    --scales 0.75 1.0 1.25
 ```
 
 ### Example 4: Small Objects
@@ -279,25 +301,35 @@ python sam2_crop_cli.py ./images/ ./output/ \
     --padding 15
 ```
 
-### Example 9: Custom Minimum Mask Region Area
+### Example 9: Enhanced Minimum Mask Region Area
 ```bash
-# Use larger minimum mask region area to filter out small segments during generation
+# Use enhanced minimum mask region area for better detail preservation
 python sam2_crop_cli.py ./images/ ./output/ \
-    --min-mask-region-area 1024 \
+    --min-mask-region-area 256 \
     --min-area 1000 \
     --max-area 50000
 ```
 
-### Example 10: Custom Maximum Resize Dimension
+### Example 10: Enhanced Maximum Resize Dimension
 ```bash
-# Use larger maximum resize dimension for higher quality processing of large images
+# Use enhanced maximum resize dimension for higher quality processing of large images
 python sam2_crop_cli.py ./images/ ./output/ \
     --max-resize-dimension 2048 \
     --min-area 1000 \
     --max-area 50000
 ```
 
-### Example 11: Overwrite Existing Segments
+### Example 11: Multi-Scale Processing
+```bash
+# Use multi-scale processing for maximum segmentation coverage
+python sam2_crop_cli.py ./images/ ./output/ \
+    --multi-scale \
+    --scales 0.75 1.0 1.25 \
+    --min-area 1000 \
+    --max-area 50000
+```
+
+### Example 12: Overwrite Existing Segments
 ```bash
 # Overwrite existing segment images instead of skipping them
 python sam2_crop_cli.py ./images/ ./output/ \
@@ -328,34 +360,43 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
 2. **Model Selection**: 
    - **SAM2.1 Models** (default): Latest version with improved performance and better segmentation quality
    - **SAM2 Models**: Original models available for compatibility
-3. **Padding**: Use larger padding if you need to include more context around objects
-4. **Hole Removal**: Use larger hole_size values to remove bigger holes in segments
-5. **Output Size**: Larger sizes preserve more detail but use more storage space
-6. **Background Options**: 
-   - Default gray background provides good contrast
-   - Transparent background (--no-gray-bg) is useful for compositing
-   - Custom colors (--bg-color) can match your workflow needs
-7. **Segment Sorting**: 
-   - Use `--sort-by-y descending` for reading order (top to bottom)
-   - Use `--sort-by-y ascending` for reverse reading order (bottom to top)
-8. **Mask Resizing**: 
-   - Use `--resize-mask-to-original` when working with high-resolution images that get resized for processing
-   - This ensures segments maintain the original image's detail and precision
-   - Particularly useful when the input image is automatically resized (e.g., from 2048x2048 to 1024x1024) for memory management
-9. **Minimum Mask Region Area**: 
-   - Use `--min-mask-region-area` to control the minimum size of segments generated by SAM2
-   - Higher values (e.g., 1024) filter out small segments during generation, improving performance
-   - Lower values (e.g., 256) allow smaller segments for more detailed segmentation
-   - This parameter affects the initial segmentation, while `--min-area` filters the final results
+3. **Enhanced Processing**: The tool now uses improved SAM2 parameters by default for better accuracy
+4. **Multi-Scale Processing**: Use `--multi-scale` for comprehensive segmentation coverage across different scales
+5. **Advanced Post-Processing**: The enhanced pipeline includes morphological operations for cleaner masks
+6. **Padding**: Use larger padding if you need to include more context around objects (default increased to 15)
+7. **Hole Removal**: Use larger hole_size values to remove bigger holes in segments (default increased to 8)
+8. **Morphological Operations**: Use `--morph-kernel-size` to control the strength of mask cleaning operations
+9. **Output Size**: Larger sizes preserve more detail but use more storage space
+10. **Background Options**: 
+    - Default gray background provides good contrast
+    - Transparent background (--no-gray-bg) is useful for compositing
+    - Custom colors (--bg-color) can match your workflow needs
+11. **Segment Sorting**: 
+    - Use `--sort-by-y descending` for reading order (top to bottom)
+    - Use `--sort-by-y ascending` for reverse reading order (bottom to top)
+12. **Mask Resizing**: 
+    - Use `--resize-mask-to-original` when working with high-resolution images that get resized for processing
+    - This ensures segments maintain the original image's detail and precision
+    - Particularly useful when the input image is automatically resized (e.g., from 2048x2048 to 1024x1024) for memory management
+13. **Enhanced Minimum Mask Region Area**: 
+    - Default reduced to 256 pixels for better detail preservation
+    - Higher values (e.g., 512) filter out small segments during generation, improving performance
+    - Lower values (e.g., 128) allow smaller segments for more detailed segmentation
+    - This parameter affects the initial segmentation, while `--min-area` filters the final results
 
-10. **Maximum Resize Dimension**: 
-    - Use `--max-resize-dimension` to control the maximum size of images during processing
-    - Larger images are automatically resized to this dimension to prevent memory issues
-    - Higher values (e.g., 2048) preserve more detail but use more memory
-    - Lower values (e.g., 512) use less memory but may lose some detail
-    - Default value of 1024 provides a good balance between quality and memory usage
+14. **Enhanced Maximum Resize Dimension**: 
+    - Default increased to 2048 pixels for better detail preservation
+    - Higher values (e.g., 4096) preserve more detail but use more memory
+    - Lower values (e.g., 1024) use less memory but may lose some detail
+    - The enhanced default provides better quality while maintaining reasonable memory usage
 
-11. **Overwrite Control**: 
+15. **Multi-Scale Processing**: 
+    - Use `--multi-scale` to process images at multiple scales (0.75x, 1.0x, 1.25x by default)
+    - This ensures better coverage of objects at different sizes
+    - Customize scales with `--scales` for specific use cases
+    - Particularly effective for images with objects of varying sizes
+
+16. **Overwrite Control**: 
     - By default, the tool skips existing segment images to avoid overwriting previous work
     - Use `--overwrite` to force regeneration of all segments, overwriting existing files
     - Useful when you want to update segments with new parameters or model settings
@@ -367,12 +408,14 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
 
 1. **No segments found**: Try reducing `--min-area` or increasing `--max-area`
 2. **Too many small segments**: Increase `--min-area` or `--min-mask-region-area`
-3. **Missing boundary pixels**: Increase `--padding`
-4. **Holes in segments**: Increase `--hole-size`
-5. **Out of memory**: Use smaller model or reduce `--output-size`
-6. **CUDA errors**: The tool automatically falls back to CPU if CUDA issues occur
-7. **Too many tiny segments during generation**: Increase `--min-mask-region-area` to filter out small segments earlier in the process
-8. **Existing segments not being updated**: Use `--overwrite` to force regeneration of all segments
+3. **Missing boundary pixels**: Increase `--padding` (default is now 15)
+4. **Holes in segments**: Increase `--hole-size` (default is now 8) or use `--morph-kernel-size`
+5. **Poor segmentation quality**: Try `--multi-scale` for better coverage
+6. **Out of memory**: Use smaller model or reduce `--output-size`
+7. **CUDA errors**: The tool automatically falls back to CPU if CUDA issues occur
+8. **Too many tiny segments during generation**: Increase `--min-mask-region-area` to filter out small segments earlier in the process
+9. **Existing segments not being updated**: Use `--overwrite` to force regeneration of all segments
+10. **OpenCV morphology errors**: The tool now properly handles boolean masks from SAM2 utilities
 
 ### Performance Tips
 
@@ -382,6 +425,9 @@ The tool supports both SAM2.1 and original SAM2 models. You can specify any mode
 - Use smaller output sizes to save storage space
 - Use smaller `--max-resize-dimension` values to reduce memory usage
 - Use larger `--max-resize-dimension` values for higher quality processing of large images
+- **Multi-scale processing** increases processing time but provides better coverage
+- **Enhanced default parameters** provide better quality but may use more memory
+- **Morphological operations** add minimal overhead but significantly improve mask quality
 
 ### Debug Mode
 
